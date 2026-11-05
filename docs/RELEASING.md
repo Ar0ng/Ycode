@@ -9,7 +9,7 @@ protection).
 
 ## One-time setup
 
-1. **Create the GitHub repository** and push this project to it.
+1. **Repository:** https://github.com/Ar0ng/Ycode
 2. **Signing key.** A key pair was generated for this project on the dev machine:
    - private key: `%USERPROFILE%\.ycode-signing\ycode.key` (never commit it)
    - password: `%USERPROFILE%\.ycode-signing\password.txt`
@@ -33,7 +33,7 @@ protection).
 
    `GITHUB_TOKEN` is provided automatically; the workflow requests
    `contents: write` to create the release.
-4. **In the app:** Settings → Updates → set the repository to `owner/name`.
+4. **In the app:** the updater checks `Ar0ng/Ycode` by default (Settings → Updates to change it; `DEFAULT_UPDATE_REPO` in `src-tauri/src/storage.rs`).
 
 ## Cutting a release
 

@@ -1,5 +1,7 @@
 # Ycode
 
+一款轻量化的 Windows AI Agent，由 GPT、DeepSeek 和 Claude 提供支持。
+
 A lightweight Windows desktop AI agent. Chat with **OpenAI GPT**, **DeepSeek** and
 **Anthropic Claude** through their official APIs, switch between an **Office** mode
 for writing and analysis and a **Coding** mode that reads, edits and runs code in a

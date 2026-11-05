@@ -44,8 +44,8 @@
 - Install, launch, restart and uninstall were verified locally (see TESTING.md), and
   the installer's update signature was verified against the embedded public key.
   An end-to-end in-app update has **not** been exercised yet: it needs two published
-  GitHub releases. The GitHub Actions workflows have not run yet because the
-  repository has no remote.
+  GitHub releases. The release workflow has not run yet (it needs the two signing
+  secrets and a `v*` tag).
 
 ## Out of scope by design
 Multi-agent, marketplace, built-in browser, IDE editor, accounts/cloud sync, voice,

@@ -13,6 +13,9 @@ use std::sync::Mutex;
 
 pub const SCHEMA_VERSION: i64 = 1;
 
+/// GitHub repository the updater checks by default (editable in Settings › Updates).
+pub const DEFAULT_UPDATE_REPO: &str = "Ar0ng/Ycode";
+
 /// Ordered list of migrations; index i migrates from version i to i+1.
 const MIGRATIONS: &[&str] = &[
     // v0 -> v1
@@ -102,7 +105,7 @@ impl Default for Settings {
             workspace: None,
             recent_workspaces: vec![],
             disabled_skills: vec![],
-            update_repo: String::new(),
+            update_repo: DEFAULT_UPDATE_REPO.into(),
             check_updates_on_start: true,
             claude_fallbacks: true,
             sidebar_collapsed: false,
