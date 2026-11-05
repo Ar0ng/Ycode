@@ -87,6 +87,9 @@ pub struct Settings {
     pub sidebar_collapsed: bool,
     /// Max agent steps (model calls) per user message.
     pub max_steps: u32,
+    /// Offer GPT Image tools (needs an OpenAI key; billed by OpenAI).
+    pub image_generation: bool,
+    pub image_model: String,
 }
 
 impl Default for Settings {
@@ -110,6 +113,8 @@ impl Default for Settings {
             claude_fallbacks: true,
             sidebar_collapsed: false,
             max_steps: 40,
+            image_generation: true,
+            image_model: crate::images::DEFAULT_MODEL.into(),
         }
     }
 }

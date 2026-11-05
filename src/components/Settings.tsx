@@ -9,6 +9,9 @@ import { api } from "../lib/api";
 import type { AppError, ProviderId, UpdateInfo } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 
+// Keep in sync with images::KNOWN_MODELS (src-tauri/src/images.rs).
+const IMAGE_MODELS = ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"];
+
 type Tab = "general" | "providers" | "skills" | "updates" | "about";
 
 function errText(t: (k: Key, v?: Record<string, string | number>) => string, e: unknown) {
@@ -56,6 +59,18 @@ function General() {
       </Row>
       <Row label={t("settings.fallbacks")} hint={t("settings.fallbacksHint")}>
         <input type="checkbox" checked={s.claude_fallbacks} onChange={(e) => patch({ claude_fallbacks: e.target.checked })} />
+      </Row>
+      <Row label={t("settings.images")} hint={t("settings.imagesHint")}>
+        <input type="checkbox" checked={s.image_generation} onChange={(e) => patch({ image_generation: e.target.checked })} />
+      </Row>
+      <Row label={t("settings.imageModel")}>
+        <select className={inputCls} disabled={!s.image_generation} value={s.image_model} onChange={(e) => patch({ image_model: e.target.value })}>
+          {(IMAGE_MODELS.includes(s.image_model) ? IMAGE_MODELS : [s.image_model, ...IMAGE_MODELS]).map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
       </Row>
     </div>
   );

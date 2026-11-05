@@ -32,6 +32,8 @@ sync, no telemetry.
 - **Prompt-cache aware context** — frozen system prompt, stable tool schema,
   append-only history, provider-specific cache parameters, per-request and per-chat
   cache hit rate (N/A when the provider gives no reliable denominator).
+- **Image generation** — GPT Image (`gpt-image-2.6-flare` by default) as `generate_image` /
+  `edit_image` tools usable from any chat model; images shown inline, saved locally.
 - **Bilingual UI** (简体中文 / English), light/dark/system theme, collapsible sidebar.
 - **Signed auto-update** via GitHub Releases; never installs without confirmation.
 

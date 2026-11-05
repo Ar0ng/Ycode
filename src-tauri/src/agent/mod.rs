@@ -238,7 +238,18 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
         }
     }
 
-    let tool_specs = if caps.tools { tools::specs(p.mode) } else { vec![] };
+    // GPT Image tools: available from any chat model when enabled and an OpenAI key exists.
+    let image_ctx = if settings.image_generation && state.has_key(ProviderId::Openai) {
+        Some(crate::images::ImageCtx {
+            http: state.http.clone(),
+            endpoint: state.endpoint(ProviderId::Openai)?,
+            dir: state.data_dir.join("images"),
+            model: if settings.image_model.trim().is_empty() { crate::images::DEFAULT_MODEL.to_string() } else { settings.image_model.trim().to_string() },
+        })
+    } else {
+        None
+    };
+    let tool_specs = if caps.tools { tools::specs_with(p.mode, image_ctx.is_some()) } else { vec![] };
     let system = prompts::system_blocks(p.mode, &skills, ws_path.as_ref().map(|p| p.to_string_lossy().to_string()).as_deref());
     let endpoint = state.endpoint(p.provider)?;
     let max_output = caps.max_output.clamp(1024, 64_000);
@@ -359,11 +370,12 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
                     is_error: true,
                     status: "cancelled".into(),
                     diff: None,
+                    images: vec![],
                 });
                 emit(tool_status(&a.id, call, "cancelled", None));
                 continue;
             }
-            let ctx = ToolCtx { mode: p.mode, workspace: ws_path.as_deref(), skills: &skills };
+            let ctx = ToolCtx { mode: p.mode, workspace: ws_path.as_deref(), skills: &skills, images: image_ctx.clone() };
             let r = run_tool(state, &p.conversation_id, &a.id, call, &ctx, cancel, emit).await;
             if r.status == "cancelled" {
                 stopped = true;
@@ -395,7 +407,7 @@ fn tool_status(mid: &str, call: &ToolCall, status: &str, approval: Option<Approv
 }
 
 fn result(call: &ToolCall, content: String, status: &str, diff: Option<String>) -> ToolResult {
-    ToolResult { call_id: call.id.clone(), name: call.name.clone(), is_error: status != "success", content, status: status.into(), diff }
+    ToolResult { call_id: call.id.clone(), name: call.name.clone(), is_error: status != "success", content, status: status.into(), diff, images: vec![] }
 }
 
 async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall, ctx: &ToolCtx<'_>, cancel: &Cancel, emit: &Emit) -> ToolResult {
@@ -431,10 +443,12 @@ async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall,
             }
         }
     emit(tool_status(mid, call, "running", None));
-    match tools::execute(prepared.action, cancel).await {
-        Ok(out) => {
+    match tools::execute_full(prepared.action, cancel).await {
+        Ok((out, images)) => {
             emit(tool_status(mid, call, "success", None));
-            result(call, out, "success", diff)
+            let mut r = result(call, out, "success", diff);
+            r.images = images;
+            r
         }
         Err(AppError::Cancelled) => {
             emit(tool_status(mid, call, "cancelled", None));

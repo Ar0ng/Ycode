@@ -12,6 +12,14 @@
   - Claude: per-message effort beta and `fallbacks: "default"` in streaming mode.
 - No live prompt-cache measurements yet (`cache-results/` is empty).
 
+## Image generation
+- Not yet tested against the live OpenAI Images API (mock-tested end to end).
+- No streaming partial previews; a spinner shows until the image is ready (up to ~2 min).
+- One image per call; quality limited to auto/low/medium/high.
+- Image token usage is reported in the tool output, not in the chat's usage line.
+- Images you attach to a message are still not sent to chat models (see Attachments);
+  to edit your own picture, put it in the workspace and ask in Coding mode.
+
 ## Attachments
 - Text attachments (`.txt`, `.md`, `.log`, `.csv`, ≤ 1 MB) are sent as text.
 - Images, PDFs and Office files can be picked and are validated (type, size) but are
@@ -49,4 +57,5 @@
 
 ## Out of scope by design
 Multi-agent, marketplace, built-in browser, IDE editor, accounts/cloud sync, voice,
-image generation, MCP management, scheduling, dashboards.
+video generation, MCP management, scheduling, dashboards. (Image generation was added
+in 0.1.2 at the user's request.)

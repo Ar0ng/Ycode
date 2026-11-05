@@ -22,7 +22,13 @@ const MAX_READ_BYTES: u64 = 5 * 1024 * 1024;
 const MAX_SEARCH_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_SEARCH_FILES: usize = 20_000;
 
+/// Tool list without image tools (kept for callers that never offer them).
 pub fn specs(mode: Mode) -> Vec<ToolSpec> {
+    specs_with(mode, false)
+}
+
+/// Fixed, deterministic tool list. `images` adds GPT Image tools (needs an OpenAI key).
+pub fn specs_with(mode: Mode, images: bool) -> Vec<ToolSpec> {
     let mut v = vec![
         ToolSpec {
             name: "read_file",
@@ -104,6 +110,36 @@ pub fn specs(mode: Mode) -> Vec<ToolSpec> {
             }),
         });
     }
+    if images {
+        v.push(ToolSpec {
+            name: "generate_image",
+            description: "Create a new image with OpenAI GPT Image from a text description. Use only when the user asks for an image (picture, illustration, logo, icon, poster…). Write a detailed prompt in English or the user's language. The result is shown to the user automatically.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "prompt": { "type": "string", "description": "Detailed description of the image" },
+                    "size": { "type": "string", "enum": crate::images::SIZES, "description": "auto, square 1024x1024, landscape 1536x1024 or portrait 1024x1536" },
+                    "quality": { "type": "string", "enum": crate::images::QUALITIES },
+                    "transparent_background": { "type": "boolean" }
+                },
+                "required": ["prompt"]
+            }),
+        });
+        v.push(ToolSpec {
+            name: "edit_image",
+            description: "Edit an existing image with OpenAI GPT Image. `image` is the id of an image generated earlier in this chat (img-….png) or a PNG/JPEG/WebP path inside the workspace. Describe the change in `prompt`.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "image": { "type": "string" },
+                    "prompt": { "type": "string", "description": "What to change" },
+                    "size": { "type": "string", "enum": crate::images::SIZES },
+                    "quality": { "type": "string", "enum": crate::images::QUALITIES }
+                },
+                "required": ["image", "prompt"]
+            }),
+        });
+    }
     v.push(ToolSpec {
         name: "load_skill",
         description: "Load the full instructions of an installed skill by name (see the skills list in the system prompt). Call this before following a skill.",
@@ -154,6 +190,7 @@ pub enum Action {
     Search { root: PathBuf, re: regex::Regex, glob: Option<String>, display_root: PathBuf },
     Write { path: PathBuf, content: String, diff: String },
     Command { command: String, cwd: PathBuf, timeout: u64 },
+    Image(crate::images::ImageJob),
     Text(String),
 }
 
@@ -166,6 +203,8 @@ pub struct ToolCtx<'a> {
     pub mode: Mode,
     pub workspace: Option<&'a Path>,
     pub skills: &'a SkillStore,
+    /// Present when image tools are enabled and an OpenAI key exists.
+    pub images: Option<crate::images::ImageCtx>,
 }
 
 fn arg_str<'a>(args: &'a Value, k: &str) -> AppResult<&'a str> {
@@ -188,7 +227,7 @@ pub fn prepare(name: &str, args: &Value, ctx: &ToolCtx) -> AppResult<Prepared> {
     if let Some(raw) = args.get("_raw") {
         return Err(AppError::Invalid(format!("arguments were not valid JSON: {}", crate::error::truncate(raw.as_str().unwrap_or(""), 200))));
     }
-    let allowed: Vec<&str> = specs(ctx.mode).iter().map(|s| s.name).collect();
+    let allowed: Vec<&str> = specs_with(ctx.mode, ctx.images.is_some()).iter().map(|s| s.name).collect();
     if !allowed.contains(&name) {
         return Err(AppError::Permission(format!("tool '{name}' is not available in {:?} mode", ctx.mode)));
     }
@@ -269,6 +308,39 @@ pub fn prepare(name: &str, args: &Value, ctx: &ToolCtx) -> AppResult<Prepared> {
                 approval: Some(ApprovalRequest { kind: ApprovalKind::RunCommand, target: command, diff: None, warning }),
             })
         }
+        "generate_image" | "edit_image" => {
+            let ictx = ctx.images.clone().ok_or_else(|| AppError::Permission("image generation is turned off or no OpenAI key is saved".into()))?;
+            let prompt = arg_str(args, "prompt")?.trim().to_string();
+            if prompt.is_empty() || prompt.chars().count() > 32_000 {
+                return Err(AppError::Invalid("prompt must be 1-32000 characters".into()));
+            }
+            let pick = |k: &str, allowed: &[&str]| -> AppResult<String> {
+                match args.get(k).and_then(|v| v.as_str()) {
+                    None => Ok("auto".into()),
+                    Some(v) if allowed.contains(&v) => Ok(v.into()),
+                    Some(v) => Err(AppError::Invalid(format!("{k} must be one of {allowed:?}, got '{v}'"))),
+                }
+            };
+            let size = pick("size", &crate::images::SIZES)?;
+            let quality = pick("quality", &crate::images::QUALITIES)?;
+            let kind = if name == "edit_image" {
+                let img = arg_str(args, "image")?.trim();
+                let source = if crate::images::is_image_id(img) {
+                    crate::images::path_for(&ictx.dir, img)?
+                } else {
+                    match sandbox::resolve(ctx.workspace, img)? {
+                        Resolved::Inside(p) => p,
+                        Resolved::Outside(p) => return Err(AppError::Permission(format!("{} is outside the workspace", p.display()))),
+                    }
+                };
+                crate::images::check_source_size(&source)?;
+                crate::images::ImageKind::Edit { source }
+            } else {
+                crate::images::ImageKind::Generate
+            };
+            let background = arg_bool(args, "transparent_background").then(|| "transparent".to_string());
+            Ok(Prepared { action: Action::Image(crate::images::ImageJob { kind, prompt, size, quality, background, ctx: ictx }), approval: None })
+        }
         "load_skill" => {
             let n = arg_str(args, "name")?;
             Ok(Prepared { action: Action::Text(ctx.skills.load_instructions(n)?), approval: None })
@@ -323,9 +395,18 @@ pub fn unified_diff(path: &Path, old: &str, new: &str) -> String {
     similar::TextDiff::from_lines(old, new).unified_diff().context_radius(3).header(&format!("a/{name}"), &format!("b/{name}")).to_string()
 }
 
+/// Run an action; also returns ids of images it produced.
+pub async fn execute_full(action: Action, cancel: &Cancel) -> AppResult<(String, Vec<String>)> {
+    match action {
+        Action::Image(job) => crate::images::run(job, cancel).await,
+        other => execute(other, cancel).await.map(|t| (t, vec![])),
+    }
+}
+
 /// Run a prepared action. Errors become tool results (is_error) at the agent level.
 pub async fn execute(action: Action, cancel: &Cancel) -> AppResult<String> {
     match action {
+        Action::Image(job) => crate::images::run(job, cancel).await.map(|(t, _)| t),
         Action::Text(t) => Ok(cap(t)),
         Action::Read { path, start, max } => {
             let meta = std::fs::metadata(&path).map_err(|e| AppError::Io(format!("{}: {e}", path.display())))?;
@@ -485,7 +566,7 @@ mod tests {
     }
 
     fn ctx<'a>(w: &'a Path, s: &'a SkillStore, mode: Mode) -> ToolCtx<'a> {
-        ToolCtx { mode, workspace: Some(w), skills: s }
+        ToolCtx { mode, workspace: Some(w), skills: s, images: None }
     }
 
     #[test]

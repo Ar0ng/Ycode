@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod commands;
 pub mod error;
+pub mod images;
 pub mod logging;
 pub mod model;
 pub mod providers;
@@ -55,6 +56,8 @@ pub fn run() {
             commands::check_update,
             commands::install_update,
             commands::open_data_folder,
+            commands::read_image,
+            commands::save_image_as,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Ycode");

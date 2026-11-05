@@ -49,6 +49,9 @@ execution → follow-up request → persistence) runs without spending API credi
 | Cache | in-band effort change keeps request-level params | `openai_effort_change_uses_configuration_update` |
 | Cache | usage parsing & hit-rate denominators per provider | `decodes_stream*`, frontend `usage` tests |
 | Cache | context trim only touches old tool output | `trim_context_only_touches_old_tool_output` |
+| Images | generate via tool → Images API request body, file saved, only id returned to model | `generate_image_tool_saves_and_reports_image` |
+| Images | tools hidden without OpenAI key / when disabled | `image_tools_hidden_without_openai_key_or_when_disabled` |
+| Images | id validation (no path escape), body shape, b64 decode, moderation → refusal | `images::tests::*` |
 | UI | i18n key parity zh-CN / en-US, interpolation, error kinds | `frontend.test.ts › i18n` |
 | Updater | repository validation / endpoint | `updater::tests::repo_validation` |
 

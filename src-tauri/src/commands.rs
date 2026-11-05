@@ -72,8 +72,8 @@ pub fn bootstrap(app: tauri::AppHandle, st: St) -> AppResult<Bootstrap> {
     })
 }
 
-const PATCHABLE: [&str; 11] =
-    ["language", "theme", "provider", "mode", "models", "efforts", "update_repo", "check_updates_on_start", "claude_fallbacks", "sidebar_collapsed", "max_steps"];
+const PATCHABLE: [&str; 13] =
+    ["image_generation", "image_model", "language", "theme", "provider", "mode", "models", "efforts", "update_repo", "check_updates_on_start", "claude_fallbacks", "sidebar_collapsed", "max_steps"];
 
 #[tauri::command]
 pub fn update_settings(st: St, patch: Value) -> AppResult<Settings> {
@@ -347,6 +347,24 @@ pub async fn install_update(app: tauri::AppHandle, st: St<'_>, on_progress: Chan
         let _ = on_progress.send(Progress { downloaded, total });
     })
     .await
+}
+
+/// Generated image as a data: URL for display.
+#[tauri::command]
+pub fn read_image(st: St, id: String) -> AppResult<String> {
+    crate::images::data_url(&st.data_dir.join("images"), &id)
+}
+
+/// Copy a generated image to a path the user picked in the save dialog.
+#[tauri::command]
+pub fn save_image_as(st: St, id: String, dest: String) -> AppResult<()> {
+    let src = crate::images::path_for(&st.data_dir.join("images"), &id)?;
+    let dest = Path::new(&dest);
+    if dest.file_name().is_none() {
+        return Err(AppError::Invalid("invalid destination".into()));
+    }
+    std::fs::copy(&src, dest)?;
+    Ok(())
 }
 
 #[tauri::command]

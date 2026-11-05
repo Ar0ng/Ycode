@@ -343,7 +343,7 @@ fn trim_context_only_touches_old_tool_output() {
     let mut h = Vec::new();
     for i in 0..30 {
         let mut t = Message::new(Role::Tool);
-        t.tool_results.push(ToolResult { call_id: format!("c{i}"), name: "read_file".into(), content: "x".repeat(3000), is_error: false, status: "success".into(), diff: None });
+        t.tool_results.push(ToolResult { call_id: format!("c{i}"), name: "read_file".into(), content: "x".repeat(3000), is_error: false, status: "success".into(), diff: None, images: vec![] });
         h.push(t);
     }
     let n = trim_context(&mut h, 20_000, &[]);
@@ -357,4 +357,58 @@ fn trim_context_only_touches_old_tool_output() {
 fn titles() {
     assert_eq!(title_from("\n\n# Fix the login bug in auth.rs\nmore"), "Fix the login bug in auth.rs");
     assert_eq!(title_from(&"长".repeat(60)).chars().count(), 41);
+}
+
+#[tokio::test]
+async fn generate_image_tool_saves_and_reports_image() {
+    use base64::Engine;
+    let png = base64::engine::general_purpose::STANDARD.encode([0x89u8, b'P', b'N', b'G', 1, 2, 3]);
+    let image_json = format!(r#"{{"created":1,"data":[{{"b64_json":"{png}"}}],"output_format":"png","usage":{{"input_tokens":20,"output_tokens":4160,"total_tokens":4180}}}}"#);
+    let m = mock(vec![
+        Reply::Sse(ds_tool("generate_image", "{\"prompt\":\"a red fox, watercolor\",\"size\":\"1024x1024\"}")),
+        Reply::Status(200, image_json),
+        Reply::Sse(ds_text("Here is your fox.", 0, 10)),
+    ])
+    .await;
+    let st = state(ProviderId::Deepseek, m.port, None);
+    lock(&st.key_override).insert(ProviderId::Openai, "test-openai".into());
+    st.update_settings(|s| {
+        s.base_urls.insert("openai".into(), format!("http://127.0.0.1:{}", m.port));
+    })
+    .unwrap();
+    let (emit, _ev) = collector();
+    run(st.clone(), params(ProviderId::Deepseek, "deepseek-flash", "draw a fox", None, Mode::Office), Cancel::default(), emit).await;
+    let bodies = m.bodies.lock().unwrap();
+    let names: Vec<_> = bodies[0]["tools"].as_array().unwrap().iter().map(|t| t["function"]["name"].as_str().unwrap().to_string()).collect();
+    assert!(names.contains(&"generate_image".to_string()) && names.contains(&"edit_image".to_string()));
+    assert_eq!(bodies[1]["model"], "gpt-image-2.6-flare");
+    assert_eq!(bodies[1]["prompt"], "a red fox, watercolor");
+    assert_eq!(bodies[1]["size"], "1024x1024");
+    let conv = st.db.get_conversation("conv-1").unwrap();
+    let r = &conv.messages[2].tool_results[0];
+    assert_eq!(r.status, "success", "{}", r.content);
+    assert_eq!(r.images.len(), 1);
+    let file = st.data_dir.join("images").join(&r.images[0]);
+    assert_eq!(std::fs::read(&file).unwrap(), vec![0x89u8, b'P', b'N', b'G', 1, 2, 3]);
+    // Only the id (not the image data) goes back to the model.
+    let follow_up = bodies[2]["messages"].as_array().unwrap();
+    let tool_msg = follow_up.iter().find(|m| m["role"] == "tool").unwrap();
+    assert!(tool_msg["content"].as_str().unwrap().contains(&r.images[0]));
+    assert!(tool_msg["content"].as_str().unwrap().len() < 600);
+    assert!(crate::images::data_url(&st.data_dir.join("images"), &r.images[0]).unwrap().starts_with("data:image/png;base64,"));
+}
+
+#[tokio::test]
+async fn image_tools_hidden_without_openai_key_or_when_disabled() {
+    let m = mock(vec![Reply::Sse(ds_text("ok", 0, 10)), Reply::Sse(ds_text("ok", 0, 10))]).await;
+    let st = state(ProviderId::Deepseek, m.port, None);
+    let (emit, _ev) = collector();
+    run(st.clone(), params(ProviderId::Deepseek, "deepseek-flash", "hi", None, Mode::Office), Cancel::default(), emit.clone()).await;
+    lock(&st.key_override).insert(ProviderId::Openai, "k".into());
+    st.update_settings(|s| s.image_generation = false).unwrap();
+    run(st.clone(), params(ProviderId::Deepseek, "deepseek-flash", "hi again", None, Mode::Office), Cancel::default(), emit).await;
+    for b in m.bodies.lock().unwrap().iter() {
+        let names: Vec<_> = b["tools"].as_array().unwrap().iter().map(|t| t["function"]["name"].as_str().unwrap().to_string()).collect();
+        assert!(!names.contains(&"generate_image".to_string()));
+    }
 }

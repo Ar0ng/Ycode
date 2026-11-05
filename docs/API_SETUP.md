@@ -52,6 +52,20 @@ Your last choice is remembered per model. Changing the level mid-chat on GPT-6 a
 Claude 5.x models uses the vendors' in-band mechanisms (`configuration_update`;
 per-message effort system message) so the prompt cache survives.
 
+## Image generation (GPT Image)
+
+Settings → General → **Image generation (GPT Image)** (on by default) and **Image model**
+(`gpt-image-2.6-flare` default; `gpt-image-2.6-sunburst` is better at precise edits).
+
+- Needs a saved **OpenAI** key, but works from any chat model: ask GPT, Claude or DeepSeek
+  for a picture and it calls the `generate_image` / `edit_image` tools.
+- Images are saved in `%APPDATA%\com.ycode.desktop\images\` and shown in the chat; click to
+  view full size, hover for **Save as…**. Only the file name goes back into the conversation.
+- To change an image, just ask ("make the background blue"); the model calls `edit_image`
+  with the image's id. In Coding mode it can also edit PNG/JPEG/WebP files in the workspace.
+- Billing is OpenAI's image-token pricing, separate from the chat usage line in Ycode.
+- A blocked prompt shows "The model declined this request" (OpenAI `moderation_blocked`).
+
 ## Typical errors
 
 | Message | Meaning |

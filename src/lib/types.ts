@@ -18,6 +18,7 @@ export interface ToolResult {
   is_error: boolean;
   status: string;
   diff?: string;
+  images?: string[];
 }
 
 export interface Usage {
@@ -118,6 +119,8 @@ export interface Settings {
   claude_fallbacks: boolean;
   sidebar_collapsed: boolean;
   max_steps: number;
+  image_generation: boolean;
+  image_model: string;
 }
 
 export interface ProviderInfo {

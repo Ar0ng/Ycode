@@ -117,6 +117,9 @@ pub struct ToolResult {
     /// Optional unified diff shown in the UI (never sent to the model separately).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diff: Option<String>,
+    /// Ids of images produced by this call (files in `<app data>/images`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
 }
 
 /// Provider-native replay payload.

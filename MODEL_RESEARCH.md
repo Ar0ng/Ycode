@@ -192,10 +192,24 @@ current models: text+image input, tool use. Retirement not before Sep–Oct 2027
 * **Latest stable API models:** all IDs in the tables above are GA per the vendor pages; no preview/experimental IDs are defaults.
 * **Models your key can access:** only knowable at runtime → Settings › Provider › *Refresh models* lists exactly what `/models` returns for your key; unlisted defaults are shown as "not returned by your key".
 
-## 6. Not verified / open items
+## 6. Image generation (GPT Image) — added on user request, 2026-11-05
+* Endpoints: `POST /v1/images/generations` (JSON) and `POST /v1/images/edits` (multipart `image[]` + `prompt`, `model`).
+* Models: `gpt-image-2.6-flare` (fast everyday generation — **Ycode default**), `gpt-image-2.6-sunburst` (editing precision),
+  `gpt-image-2.5-flare` / `-sunburst`. `gpt-image-1` was shut down on 2026-10-23.
+* Params used: `size` auto | 1024x1024 | 1536x1024 | 1024x1536; `quality` auto | low | medium | high
+  (`xhigh`/`max` documented for 2.5 only — not offered); `n: 1`; `output_format: png`; optional `background: transparent`.
+* Response: `data[0].b64_json` (GPT image models never return URLs), `usage.{input_tokens, output_tokens}`.
+* Pricing: token-based; 2.6 models list image output at $30 / 1M tokens, image input $8 / 1M.
+* Moderation blocks → HTTP 400 `error.code = "moderation_blocked"` → shown as "the model declined".
+* Why not the Responses built-in `image_generation` tool: works only with OpenAI chat models, a stateless (`store:false`)
+  history would replay base64 image results every turn, and the tool reference still lists only older image models.
+  Ycode wraps the Images API as local tools instead, usable from GPT, DeepSeek and Claude alike.
+
+## 7. Not verified / open items
 * No live API calls were made during development (no keys available). Request shapes follow the docs verbatim; first live run must follow `docs/TESTING.md` § Live checks.
 * OpenAI streaming event schemas for `response.completed.usage` were taken from the prompt-caching and reasoning guides; the full streaming reference page was too large to read in one pass.
 * DeepSeek: whether changing `reasoning_effort` changes the cached prefix is undocumented.
+* Image edits: the docs' multipart example shows only `image[]`, `prompt`, `model`, `stream`; Ycode also sends `size`, `quality`, `n` (standard fields of the JSON form) — verify on first live edit.
 * OpenAI `configuration_update` support list is described as "supported GPT-6 models"; Ycode flags all four GPT-6 flagship IDs — verify on first live run.
 
 ## Sources
@@ -204,6 +218,7 @@ current models: text+image input, tool use. Retirement not before Sep–Oct 2027
 * https://developers.openai.com/api/docs/guides/prompt-caching
 * https://developers.openai.com/api/docs/guides/reasoning
 * https://developers.openai.com/api/docs/guides/function-calling?api-mode=responses
+* https://developers.openai.com/api/docs/guides/image-generation , /api/reference/resources/images/methods/generate , /edit , /api/docs/pricing
 * https://api-docs.deepseek.com/ , /api/list-models/ , /guides/thinking_mode/ , /guides/kv_cache/ , /quick_start/pricing , /api/create-chat-completion/ , /guides/responses_api/
 * https://platform.claude.com/docs/en/models/overview
 * https://platform.claude.com/docs/en/build-with-claude/effort

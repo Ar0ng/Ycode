@@ -4,6 +4,10 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { Bootstrap, Message } from "../lib/types";
 
 const now = Date.now();
+const MOCK_IMAGE_ID = "img-0f8e2c1a-1b2c-4d5e-8f90-123456789abc.png";
+const MOCK_IMAGE =
+  "data:image/svg+xml;base64," +
+  btoa('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect x="32" y="32" width="448" height="448" rx="96" fill="#1d1d1f"/><path d="M150 262 L226 338 L364 182" fill="none" stroke="#34c759" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/></svg>');
 const boot: Bootstrap = {
   version: "0.1.0-dev",
   schema_version: 1,
@@ -24,6 +28,8 @@ const boot: Bootstrap = {
     claude_fallbacks: true,
     sidebar_collapsed: false,
     max_steps: 40,
+    image_generation: true,
+    image_model: "gpt-image-2.6-flare",
   },
   providers: [
     { id: "openai", has_key: true, base_url: "", default_base_url: "https://api.openai.com/v1" },
@@ -81,6 +87,24 @@ const convo: Message[] = [
     model: "claude-opus-5-5",
     created_at: now,
   },
+  { id: "u2", role: "user", text: "Make an app icon for the fix: a green check mark on a dark rounded square.", status: "complete", created_at: now },
+  {
+    id: "a3",
+    role: "assistant",
+    text: "",
+    tool_calls: [{ id: "t3", name: "generate_image", arguments: { prompt: "App icon: bold green check mark centered on a dark rounded square, flat style", size: "1024x1024" } }],
+    status: "complete",
+    created_at: now,
+  },
+  {
+    id: "r3",
+    role: "tool",
+    text: "",
+    tool_results: [{ call_id: "t3", name: "generate_image", content: "Generated 1 image", is_error: false, status: "success", images: [MOCK_IMAGE_ID] }],
+    status: "complete",
+    created_at: now,
+  },
+  { id: "a4", role: "assistant", text: "Here's the icon — a green check on a dark rounded square.", status: "complete", created_at: now },
 ];
 
 export function installMock() {
@@ -98,6 +122,8 @@ export function installMock() {
         return boot.conversations;
       case "list_skills":
         return boot.skills;
+      case "read_image":
+        return MOCK_IMAGE;
       default:
         return null;
     }

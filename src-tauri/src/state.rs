@@ -109,13 +109,15 @@ impl AppState {
         let over = lock(&self.key_override).get(&p).cloned();
         let api_key = match over {
             Some(k) => k,
+            // Tests never touch the real Credential Manager.
+            None if cfg!(test) => String::new(),
             None => secrets::get_key(p)?.unwrap_or_default(),
         };
         Ok(Endpoint { base_url, api_key })
     }
 
     pub fn has_key(&self, p: ProviderId) -> bool {
-        lock(&self.key_override).contains_key(&p) || secrets::has_key(p)
+        lock(&self.key_override).contains_key(&p) || (!cfg!(test) && secrets::has_key(p))
     }
 
     pub fn register_run(&self, conv: &str) -> AppResult<Cancel> {

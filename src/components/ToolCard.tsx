@@ -3,10 +3,11 @@ import { AlertTriangle, Ban, Check, ChevronRight, CircleDashed, Loader2, X } fro
 import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
 import type { ToolCall, ToolResult, ToolStatus } from "../lib/types";
+import { GeneratedImages } from "./GeneratedImages";
 
 function summary(call: ToolCall): string {
   const a = call.arguments as Record<string, unknown>;
-  const v = a.command ?? a.path ?? a.pattern ?? a.name ?? "";
+  const v = a.command ?? a.path ?? a.pattern ?? a.prompt ?? a.name ?? "";
   return typeof v === "string" ? v : JSON.stringify(v);
 }
 
@@ -48,6 +49,7 @@ export function ToolCard({ call, result }: { call: ToolCall; result?: ToolResult
         <span className="text-[11px] text-faint">{t(`tool.${status}`)}</span>
         <ChevronRight size={14} className={`text-faint transition-transform ${open ? "rotate-90" : ""}`} />
       </button>
+      {result?.images && result.images.length > 0 && <GeneratedImages ids={result.images} />}
       {approval && (
         <div className="border-t border-line px-3 py-2.5">
           <div className="mb-1.5 font-medium">{t(`tool.${approval.kind}`)}</div>

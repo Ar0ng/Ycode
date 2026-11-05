@@ -60,4 +60,6 @@ export const api = {
     return invoke<void>("install_update", { onProgress: ch });
   },
   dataFolder: () => invoke<string>("open_data_folder"),
+  readImage: (id: string) => invoke<string>("read_image", { id }),
+  saveImageAs: (id: string, dest: string) => invoke<void>("save_image_as", { id, dest }),
 };

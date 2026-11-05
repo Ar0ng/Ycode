@@ -56,6 +56,7 @@ pub struct ToolSpec {
     pub parameters: Value,
 }
 
+#[derive(Clone)]
 pub struct Endpoint {
     pub base_url: String,
     pub api_key: String,
@@ -363,6 +364,7 @@ pub(crate) mod testutil {
             is_error: false,
             status: "success".into(),
             diff: None,
+            images: vec![],
         }];
         vec![u, a, t]
     }

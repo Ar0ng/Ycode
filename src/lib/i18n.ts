@@ -161,6 +161,14 @@ const en = {
   "err.generic": "Error",
   "err.details": "Details",
   "err.render": "This page hit an error and couldn't be shown.",
+  "image.saveAs": "Save as…",
+  "image.saved": "Saved",
+  "image.open": "View full size",
+  "image.missing": "Image file not found",
+  "image.close": "Close",
+  "settings.images": "Image generation (GPT Image)",
+  "settings.imagesHint": "Lets any chat model create and edit images through OpenAI's Images API. Needs an OpenAI key; images are billed by OpenAI and saved on this computer.",
+  "settings.imageModel": "Image model",
   "err.back": "Back to chat",
 };
 
@@ -327,6 +335,14 @@ const zh: Record<Key, string> = {
   "err.generic": "错误",
   "err.details": "详情",
   "err.render": "此页面出错，无法显示。",
+  "image.saveAs": "另存为…",
+  "image.saved": "已保存",
+  "image.open": "查看大图",
+  "image.missing": "找不到图片文件",
+  "image.close": "关闭",
+  "settings.images": "图片生成（GPT Image）",
+  "settings.imagesHint": "允许任意对话模型通过 OpenAI Images API 生成和编辑图片。需要 OpenAI Key；按 OpenAI 计费，图片保存在本机。",
+  "settings.imageModel": "图片模型",
   "err.back": "返回对话",
 };
 
