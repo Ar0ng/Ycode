@@ -32,6 +32,16 @@ dist-ssr
 password.txt
 src-tauri/target/
 cache-results/raw/
+# Local app data / build artifacts that must never be committed
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+.ycode-signing/
+*-setup.exe
+*.exe.sig
+install-test-result.json
 
 # ---- from the repository's initial commit (Node template) ----
 # Logs
