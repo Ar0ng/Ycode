@@ -1,0 +1,227 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI", monospace;
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-sidebar: var(--sidebar);
+  --color-elev: var(--elev);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-hover: var(--hover);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-code: var(--code);
+}
+
+:root {
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --sidebar: #f7f7f8;
+  --elev: #ffffff;
+  --line: #e7e7ea;
+  --line-strong: #d4d4d8;
+  --fg: #1d1d1f;
+  --muted: #6b6b73;
+  --faint: #9c9ca3;
+  --hover: #efeff1;
+  --accent: #1d1d1f;
+  --accent-fg: #ffffff;
+  --danger: #c42b1c;
+  --ok: #107c41;
+  --warn: #9d5d00;
+  --code: #f6f6f7;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #1b1b1d;
+  --panel: #1b1b1d;
+  --sidebar: #161618;
+  --elev: #242427;
+  --line: #2e2e32;
+  --line-strong: #3c3c41;
+  --fg: #ececee;
+  --muted: #a0a0a8;
+  --faint: #71717a;
+  --hover: #2a2a2e;
+  --accent: #ececee;
+  --accent-fg: #18181a;
+  --danger: #ff8a7a;
+  --ok: #6ccb8f;
+  --warn: #e3b25c;
+  --code: #222225;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--fg) 18%, transparent);
+}
+
+@layer base {
+  button:focus-visible,
+  textarea:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  [role="slider"]:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--fg) 45%, transparent);
+    outline-offset: 1px;
+  }
+}
+
+/* Long chat lists: let the browser skip layout/paint of off-screen messages. */
+.msg {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
+.prose-y {
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.prose-y > :first-child {
+  margin-top: 0;
+}
+.prose-y > :last-child {
+  margin-bottom: 0;
+}
+.prose-y p,
+.prose-y ul,
+.prose-y ol,
+.prose-y pre,
+.prose-y table,
+.prose-y blockquote {
+  margin: 0.6em 0;
+}
+.prose-y ul {
+  list-style: disc;
+  padding-left: 1.4em;
+}
+.prose-y ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+}
+.prose-y li {
+  margin: 0.2em 0;
+}
+.prose-y h1,
+.prose-y h2,
+.prose-y h3,
+.prose-y h4 {
+  font-weight: 600;
+  margin: 1em 0 0.4em;
+  line-height: 1.3;
+}
+.prose-y h1 {
+  font-size: 1.35em;
+}
+.prose-y h2 {
+  font-size: 1.2em;
+}
+.prose-y h3 {
+  font-size: 1.05em;
+}
+.prose-y a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-y :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--code);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.05em 0.3em;
+}
+.prose-y blockquote {
+  border-left: 3px solid var(--line-strong);
+  padding-left: 0.8em;
+  color: var(--muted);
+}
+.prose-y table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+.prose-y th,
+.prose-y td {
+  border: 1px solid var(--line);
+  padding: 0.3em 0.6em;
+  text-align: left;
+}
+.prose-y hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 1em 0;
+}
+
+.diff-add {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.diff-del {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fade-in {
+  animation: fade-in 160ms ease-out;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in,
+  .pulse-dot {
+    animation: none;
+  }
+}
