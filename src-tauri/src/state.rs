@@ -72,6 +72,7 @@ impl AppState {
         let mut g = lock(&self.settings);
         let mut next = g.clone();
         f(&mut next);
+        next.normalize(); // e.g. clearing the update repository restores the default
         self.db.save_settings(&next)?;
         *g = next.clone();
         Ok(next)
@@ -156,6 +157,18 @@ pub fn validate_base_url(u: &str) -> AppResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clearing_update_repo_restores_default() {
+        let dir = std::env::temp_dir().join(format!("ycode-state-{}", uuid::Uuid::new_v4()));
+        let st = AppState::new(Db::open_in_memory().unwrap(), dir);
+        assert_eq!(st.settings().update_repo, crate::storage::DEFAULT_UPDATE_REPO);
+        let s = st.update_settings(|s| s.update_repo = "someone/fork".into()).unwrap();
+        assert_eq!(s.update_repo, "someone/fork");
+        let s = st.update_settings(|s| s.update_repo = String::new()).unwrap();
+        assert_eq!(s.update_repo, crate::storage::DEFAULT_UPDATE_REPO);
+        assert_eq!(st.db.load_settings().update_repo, crate::storage::DEFAULT_UPDATE_REPO, "persisted too");
+    }
 
     #[test]
     fn base_url_validation() {

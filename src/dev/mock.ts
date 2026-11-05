@@ -23,7 +23,7 @@ const boot: Bootstrap = {
     workspace: "C:\\Users\\dev\\projects\\demo-app",
     recent_workspaces: ["C:\\Users\\dev\\projects\\demo-app", "D:\\work\\website", "D:\\notes"],
     disabled_skills: [],
-    update_repo: "",
+    update_repo: "Ar0ng/Ycode",
     check_updates_on_start: false,
     claude_fallbacks: true,
     sidebar_collapsed: false,

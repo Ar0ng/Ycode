@@ -145,6 +145,16 @@ impl Default for Settings {
     }
 }
 
+impl Settings {
+    /// Fill in values that must never be empty. Settings saved by versions before
+    /// 0.1.1 have `update_repo: ""`, which left the updater unconfigured after an
+    /// upgrade; an empty repository always means the official one.
+    pub fn normalize(&mut self) {
+        let repo = self.update_repo.trim().trim_matches('/');
+        self.update_repo = if repo.is_empty() { DEFAULT_UPDATE_REPO.to_string() } else { repo.to_string() };
+    }
+}
+
 pub struct Db {
     conn: Mutex<Connection>,
     /// Set when the DB or settings had to be recovered on startup.
@@ -200,7 +210,7 @@ impl Db {
     pub fn load_settings(&self) -> Settings {
         let c = self.lock();
         let raw: Option<String> = c.query_row("SELECT value FROM kv WHERE key='settings'", [], |r| r.get(0)).optional().ok().flatten();
-        match raw {
+        let mut s = match raw {
             None => Settings::default(),
             Some(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
                 // Corrupt settings: fall back to defaults but keep a copy.
@@ -208,7 +218,9 @@ impl Db {
                 *self.recovery_notice.lock().unwrap_or_else(|p| p.into_inner()) = Some(format!("settings were reset ({e})"));
                 Settings::default()
             }),
-        }
+        };
+        s.normalize();
+        s
     }
 
     pub fn save_settings(&self, s: &Settings) -> AppResult<()> {
@@ -452,6 +464,21 @@ mod tests {
         let s2 = db.load_settings();
         assert_eq!(s2.theme, "dark");
         assert_eq!(s2.max_steps, 40);
+    }
+
+    #[test]
+    fn empty_update_repo_defaults_to_official() {
+        let db = Db::open_in_memory().unwrap();
+        // Settings written by 0.1.0 (before the default existed) stored an empty repo.
+        db.lock().execute("INSERT INTO kv(key,value) VALUES('settings','{\"update_repo\":\"\",\"theme\":\"dark\"}')", []).unwrap();
+        let s = db.load_settings();
+        assert_eq!(s.update_repo, DEFAULT_UPDATE_REPO);
+        assert_eq!(s.theme, "dark", "other values untouched");
+        for (input, want) in [("   ", DEFAULT_UPDATE_REPO), (" /me/fork/ ", "me/fork"), ("me/fork", "me/fork")] {
+            let mut s = Settings { update_repo: input.into(), ..Default::default() };
+            s.normalize();
+            assert_eq!(s.update_repo, want, "input {input:?}");
+        }
     }
 
     #[test]

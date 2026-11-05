@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, Eye, EyeOff, FolderOpen, Loader2, RefreshCw, Trash2, X } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -316,6 +316,8 @@ function Updates() {
   const s = useStore((x) => x.settings)!;
   const patch = useStore((x) => x.patchSettings);
   const [repo, setRepo] = useState(s.update_repo);
+  // Show what the backend actually stored (an emptied field becomes the default repo).
+  useEffect(() => setRepo(s.update_repo), [s.update_repo]);
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [state, setState] = useState<"idle" | "checking" | "downloading" | "done">("idle");
   const [pct, setPct] = useState("");
@@ -336,7 +338,7 @@ function Updates() {
   return (
     <div>
       <Row label={t("updates.repo")} hint={t("updates.repoHint")}>
-        <input value={repo} placeholder="owner/Ycode" onChange={(e) => setRepo(e.target.value)} onBlur={() => repo !== s.update_repo && patch({ update_repo: repo.trim() })} className={`${inputCls} w-56 font-mono text-xs`} />
+        <input value={repo} placeholder="Ar0ng/Ycode" onChange={(e) => setRepo(e.target.value)} onBlur={() => repo.trim() !== s.update_repo && patch({ update_repo: repo.trim() })} className={`${inputCls} w-56 font-mono text-xs`} />
       </Row>
       <Row label={t("updates.onStart")}>
         <input type="checkbox" checked={s.check_updates_on_start} onChange={(e) => patch({ check_updates_on_start: e.target.checked })} />
