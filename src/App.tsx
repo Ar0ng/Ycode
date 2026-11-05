@@ -9,6 +9,8 @@ import { MessageList, ErrorBox } from "./components/MessageList";
 import { SettingsView } from "./components/Settings";
 import { UsageLine } from "./components/UsageLine";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Logo } from "./components/Logo";
+import { TopBar } from "./components/TopBar";
 
 function useTheme() {
   const theme = useStore((s) => s.settings?.theme ?? "system");
@@ -45,7 +47,10 @@ function Welcome() {
   const mode = useStore((s) => s.settings?.mode ?? "office");
   return (
     <div className="mb-8 text-center select-none">
-      <div className="mb-3 text-[34px] font-semibold tracking-tight">Ycode</div>
+      <div className="mb-3 flex items-center justify-center gap-3">
+        <Logo size={44} />
+        <span className="text-[34px] font-semibold tracking-tight">Ycode</span>
+      </div>
       <div className="text-[17px] text-fg">{t("welcome.title")}</div>
       <div className="mt-1.5 text-[13px] text-faint">{mode === "coding" ? t("welcome.coding") : t("welcome.office")}</div>
     </div>
@@ -64,19 +69,23 @@ function ChatArea() {
 
   if (isNew) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 pb-[8vh]">
-        <Welcome />
-        <Composer centered />
-        {lastError && (
-          <div className="mt-3 w-full max-w-[720px]">
-            <ErrorBox error={lastError} />
-          </div>
-        )}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <TopBar isNew />
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 pb-[10vh]">
+          <Welcome />
+          <Composer centered />
+          {lastError && (
+            <div className="mt-3 w-full max-w-[720px]">
+              <ErrorBox error={lastError} />
+            </div>
+          )}
+        </div>
       </div>
     );
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <TopBar isNew={false} />
       {loading ? <div className="flex-1" /> : <MessageList />}
       <div className="px-6 pt-1 pb-3">
         <Composer centered={false} />

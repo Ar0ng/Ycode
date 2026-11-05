@@ -7,6 +7,7 @@ import type {
   AppError,
   ApprovalPrompt,
   Attachment,
+  ConversationGroup,
   ConversationSummary,
   Effort,
   Message,
@@ -40,10 +41,13 @@ interface State {
   providers: ProviderInfo[];
   models: ModelCaps[];
   conversations: ConversationSummary[];
+  groups: ConversationGroup[];
   skills: SkillMeta[];
   view: "chat" | "settings";
   currentId: string | null;
   draftId: string;
+  /** Group a new chat will be created in (sidebar "+" on a group). */
+  draftGroupId: string | null;
   messages: Message[];
   loadingConversation: boolean;
   running: Record<string, boolean>;
@@ -56,7 +60,12 @@ interface State {
 
 interface Actions {
   init(): Promise<void>;
-  newChat(): void;
+  newChat(groupId?: string | null): void;
+  createGroup(name: string): Promise<void>;
+  renameGroup(id: string, name: string): Promise<void>;
+  deleteGroup(id: string): Promise<void>;
+  toggleGroup(id: string): void;
+  moveChat(id: string, groupId: string | null): Promise<void>;
   openChat(id: string): Promise<void>;
   deleteChat(id: string): Promise<void>;
   send(text: string, attachments: Attachment[]): Promise<void>;
@@ -168,7 +177,7 @@ export const useStore = create<State & Actions>((set, get) => {
     set((s) => ({ running: { ...s.running, [convId]: true }, lastError: null }));
     try {
       await api.sendMessage(
-        { conversation_id: convId, text, attachments, provider: sel.provider, model: sel.model, effort: sel.effort, mode: sel.mode },
+        { conversation_id: convId, text, attachments, provider: sel.provider, model: sel.model, effort: sel.effort, mode: sel.mode, group_id: get().draftGroupId },
         handle(convId),
       );
     } catch (err) {
@@ -185,10 +194,12 @@ export const useStore = create<State & Actions>((set, get) => {
     providers: [],
     models: [],
     conversations: [],
+    groups: [],
     skills: [],
     view: "chat",
     currentId: null,
     draftId: uuid(),
+    draftGroupId: null,
     messages: [],
     loadingConversation: false,
     running: {},
@@ -211,6 +222,7 @@ export const useStore = create<State & Actions>((set, get) => {
           providers: b.providers,
           models: b.models,
           conversations: b.conversations,
+          groups: b.groups,
           skills: b.skills,
         });
         if (b.recovery_notice) get().addNotice("recovered", b.recovery_notice);
@@ -219,12 +231,54 @@ export const useStore = create<State & Actions>((set, get) => {
       }
     },
 
-    newChat() {
-      set({ currentId: null, draftId: uuid(), messages: [], tools: {}, convUsage: null, lastUsage: null, lastError: null, view: "chat" });
+    newChat(groupId = null) {
+      set({ currentId: null, draftId: uuid(), draftGroupId: groupId, messages: [], tools: {}, convUsage: null, lastUsage: null, lastError: null, view: "chat" });
+    },
+
+    async createGroup(name) {
+      try {
+        const g = await api.createGroup(name);
+        set((s) => ({ groups: [...s.groups, g] }));
+      } catch (e) {
+        set({ lastError: e as AppError });
+      }
+    },
+
+    async renameGroup(id, name) {
+      try {
+        await api.renameGroup(id, name);
+        set((s) => ({ groups: s.groups.map((g) => (g.id === id ? { ...g, name: name.trim() } : g)) }));
+      } catch (e) {
+        set({ lastError: e as AppError });
+      }
+    },
+
+    async deleteGroup(id) {
+      await api.deleteGroup(id);
+      set((s) => ({
+        groups: s.groups.filter((g) => g.id !== id),
+        conversations: s.conversations.map((c) => (c.group_id === id ? { ...c, group_id: null } : c)),
+        draftGroupId: s.draftGroupId === id ? null : s.draftGroupId,
+      }));
+    },
+
+    toggleGroup(id) {
+      const g = get().groups.find((x) => x.id === id);
+      if (!g) return;
+      set((s) => ({ groups: s.groups.map((x) => (x.id === id ? { ...x, collapsed: !x.collapsed } : x)) }));
+      api.setGroupCollapsed(id, !g.collapsed).catch(() => {});
+    },
+
+    async moveChat(id, groupId) {
+      await api.moveConversation(id, groupId);
+      set((s) => ({ conversations: s.conversations.map((c) => (c.id === id ? { ...c, group_id: groupId } : c)) }));
     },
 
     async openChat(id) {
-      set({ view: "chat", currentId: id, loadingConversation: true, messages: [], tools: {}, lastError: null, lastUsage: null });
+      // The mode switch is hidden inside a chat, so follow the chat's own mode.
+      const summary = get().conversations.find((c) => c.id === id);
+      if (summary && get().settings && summary.mode !== get().settings!.mode) get().patchSettings({ mode: summary.mode });
+      set({ view: "chat", currentId: id, draftGroupId: null, loadingConversation: true, messages: [], tools: {}, lastError: null, lastUsage: null });
       try {
         const c = await api.getConversation(id);
         if (get().currentId !== id) return;
@@ -250,7 +304,7 @@ export const useStore = create<State & Actions>((set, get) => {
         const now = Date.now();
         set((st) => ({
           currentId: convId,
-          conversations: [{ id: convId!, title: "", mode: st.settings!.mode, created_at: now, updated_at: now, workspace: st.settings!.workspace }, ...st.conversations],
+          conversations: [{ id: convId!, title: "", mode: st.settings!.mode, created_at: now, updated_at: now, workspace: st.settings!.workspace, group_id: st.draftGroupId }, ...st.conversations],
         }));
       }
       await run(convId, text, attachments);

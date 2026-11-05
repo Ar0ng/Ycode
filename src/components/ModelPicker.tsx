@@ -4,6 +4,7 @@ import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
 import { api } from "../lib/api";
 import type { ModelCaps, ProviderId } from "../lib/types";
+import { isHidden } from "../lib/models";
 
 const PROVIDERS: ProviderId[] = ["openai", "deepseek", "anthropic"];
 
@@ -14,6 +15,8 @@ export function ModelPicker({ provider, model, caps }: { provider: ProviderId; m
   const models = useStore((s) => s.models);
   const providers = useStore((s) => s.providers);
   const mode = useStore((s) => s.settings?.mode ?? "office");
+  const hideLegacy = useStore((s) => s.settings?.hide_legacy_models ?? true);
+  const hiddenModels = useStore((s) => s.settings?.hidden_models);
   const selectModel = useStore((s) => s.selectModel);
   const setModels = useStore((s) => s.setModels);
   const ref = useRef<HTMLDivElement>(null);
@@ -59,7 +62,10 @@ export function ModelPicker({ provider, model, caps }: { provider: ProviderId; m
       {open && (
         <div className="fade-in absolute bottom-full left-0 z-30 mb-1 max-h-[60vh] w-80 overflow-y-auto rounded-lg border border-line bg-elev p-1 shadow-lg">
           {PROVIDERS.map((p) => {
-            const list = models.filter((m) => m.provider === p);
+            // Hidden (legacy or hand-hidden) models stay visible only while selected.
+            const list = models.filter(
+              (m) => m.provider === p && (!isHidden(m, { hide_legacy_models: hideLegacy, hidden_models: hiddenModels ?? [] }) || (p === provider && m.id === model)),
+            );
             const info = providers.find((x) => x.id === p);
             return (
               <div key={p} className="py-1">

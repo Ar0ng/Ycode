@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, FolderOpen, Loader2, RefreshCw, Trash2, X } from "lucide-react";
+import { Check, Eye, EyeOff, FolderOpen, Loader2, RefreshCw, Trash2, X } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { openPath } from "@tauri-apps/plugin-opener";
@@ -8,6 +8,7 @@ import { useT, type Key } from "../lib/i18n";
 import { api } from "../lib/api";
 import type { AppError, ProviderId, UpdateInfo } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { isLegacy, modelKey } from "../lib/models";
 
 // Keep in sync with images::KNOWN_MODELS (src-tauri/src/images.rs).
 const IMAGE_MODELS = ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"];
@@ -83,6 +84,14 @@ function ProviderCard({ id }: { id: ProviderId }) {
   // array on every call makes zustand re-render forever (blank window).
   const allModels = useStore((s) => s.models);
   const models = useMemo(() => allModels.filter((m) => m.provider === id), [allModels, id]);
+  const hideLegacy = useStore((s) => s.settings?.hide_legacy_models ?? true);
+  const hidden = useStore((s) => s.settings?.hidden_models);
+  const patch = useStore((s) => s.patchSettings);
+  const toggleHidden = (modelId: string) => {
+    const k = modelKey(id, modelId);
+    const cur = hidden ?? [];
+    patch({ hidden_models: cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k] });
+  };
   const { setProviders, setModels } = useStore.getState();
   const [key, setKey] = useState("");
   const [url, setUrl] = useState(info?.base_url ?? "");
@@ -166,10 +175,24 @@ function ProviderCard({ id }: { id: ProviderId }) {
       {msg && <div className={`mb-2 text-xs ${msg.ok ? "text-ok" : "text-danger"}`}>{msg.text}</div>}
       {info?.refreshed_at && <div className="mb-2 text-[11px] text-faint">{t("provider.refreshedAt", { time: new Date(info.refreshed_at).toLocaleString() })}</div>}
       <div className="text-[11px] font-medium tracking-wide text-faint uppercase">{t("provider.models")}</div>
-      <ul className="mt-1 max-h-48 overflow-y-auto">
-        {models.map((m) => (
-          <li key={m.id} className="flex items-center gap-2 py-1 text-xs">
+      <ul className="mt-1 max-h-56 overflow-y-auto">
+        {models.map((m) => {
+          const legacy = isLegacy(m);
+          const manuallyHidden = (hidden ?? []).includes(modelKey(id, m.id));
+          const isHiddenNow = manuallyHidden || (hideLegacy && legacy);
+          return (
+          <li key={m.id} className={`flex items-center gap-2 py-1 text-xs ${isHiddenNow ? "opacity-50" : ""}`}>
+            <button
+              type="button"
+              title={manuallyHidden ? t("model.show") : t("model.hide")}
+              disabled={hideLegacy && legacy && !manuallyHidden}
+              onClick={() => toggleHidden(m.id)}
+              className="text-faint hover:text-fg disabled:cursor-default disabled:hover:text-faint"
+            >
+              {isHiddenNow ? <EyeOff size={13} /> : <Eye size={13} />}
+            </button>
             <span className={`font-mono ${m.available === false ? "text-faint" : ""}`}>{m.id}</span>
+            {legacy && <span className="rounded border border-line px-1 text-[10px] text-faint">{t("model.legacy")}</span>}
             <span className="text-faint">
               {m.efforts.length ? m.efforts.map((e) => t(`effort.${e}` as Key)).join(" / ") : t("model.unknownCaps")}
               {m.available === false && ` · ${t("model.unavailable")}`}
@@ -180,7 +203,8 @@ function ProviderCard({ id }: { id: ProviderId }) {
               </button>
             )}
           </li>
-        ))}
+          );
+        })}
       </ul>
       {confirm && (
         <ConfirmDialog
@@ -393,6 +417,24 @@ function About() {
   );
 }
 
+function LegacyToggle() {
+  const t = useT();
+  const s = useStore((x) => x.settings)!;
+  const patch = useStore((x) => x.patchSettings);
+  const models = useStore((x) => x.models);
+  const n = useMemo(
+    () => models.filter((m) => s.hidden_models.includes(modelKey(m.provider, m.id)) || (s.hide_legacy_models && isLegacy(m))).length,
+    [models, s.hidden_models, s.hide_legacy_models],
+  );
+  return (
+    <div className="mb-4 rounded-xl border border-line px-4">
+      <Row label={t("settings.hideLegacy")} hint={`${t("settings.hideLegacyHint")} ${t("model.hiddenCount", { n })}`}>
+        <input type="checkbox" checked={s.hide_legacy_models} onChange={(e) => patch({ hide_legacy_models: e.target.checked })} />
+      </Row>
+    </div>
+  );
+}
+
 export function SettingsView() {
   const t = useT();
   const [tab, setTab] = useState<Tab>("general");
@@ -416,7 +458,14 @@ export function SettingsView() {
         <div className="min-w-0 flex-1 overflow-y-auto px-6 py-4">
           <div className="max-w-[680px]">
             {tab === "general" && <General />}
-            {tab === "providers" && (["openai", "deepseek", "anthropic"] as ProviderId[]).map((p) => <ProviderCard key={p} id={p} />)}
+            {tab === "providers" && (
+              <>
+                <LegacyToggle />
+                {(["openai", "deepseek", "anthropic"] as ProviderId[]).map((p) => (
+                  <ProviderCard key={p} id={p} />
+                ))}
+              </>
+            )}
             {tab === "skills" && <Skills />}
             {tab === "updates" && <Updates />}
             {tab === "about" && <About />}

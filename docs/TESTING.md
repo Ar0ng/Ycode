@@ -52,6 +52,9 @@ execution → follow-up request → persistence) runs without spending API credi
 | Images | generate via tool → Images API request body, file saved, only id returned to model | `generate_image_tool_saves_and_reports_image` |
 | Images | tools hidden without OpenAI key / when disabled | `image_tools_hidden_without_openai_key_or_when_disabled` |
 | Images | id validation (no path escape), body shape, b64 decode, moderation → refusal | `images::tests::*` |
+| Storage | v1 → v2 migration keeps chats; sections create/rename/collapse/delete/move | `migrates_v1_database_to_v2_keeping_chats`, `groups_create_move_delete` |
+| UI | legacy-model rules per provider + manual hide | `frontend.test.ts › legacy models` |
+| UI | no derived arrays/objects in store selectors (blank-window regression) | `frontend.test.ts › store selectors` |
 | UI | i18n key parity zh-CN / en-US, interpolation, error kinds | `frontend.test.ts › i18n` |
 | Updater | repository validation / endpoint | `updater::tests::repo_validation` |
 

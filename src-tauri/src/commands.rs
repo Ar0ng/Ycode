@@ -8,7 +8,7 @@ use crate::providers::{self, registry::ModelCaps};
 use crate::secrets;
 use crate::skills::SkillMeta;
 use crate::state::{AppState, Decision, lock, validate_base_url};
-use crate::storage::{Conversation, ConversationSummary, Settings};
+use crate::storage::{Conversation, ConversationGroup, ConversationSummary, Settings};
 use serde::Serialize;
 use serde_json::Value;
 use std::path::Path;
@@ -38,6 +38,7 @@ pub struct Bootstrap {
     providers: Vec<ProviderInfo>,
     models: Vec<ModelCaps>,
     conversations: Vec<ConversationSummary>,
+    groups: Vec<ConversationGroup>,
     skills: Vec<SkillMeta>,
     recovery_notice: Option<String>,
     schema_version: i64,
@@ -65,6 +66,7 @@ pub fn bootstrap(app: tauri::AppHandle, st: St) -> AppResult<Bootstrap> {
         providers: providers_info(&st, &s),
         models: st.model_table(&s),
         conversations: st.db.list_conversations()?,
+        groups: st.db.list_groups()?,
         skills: st.skills_snapshot().list().to_vec(),
         recovery_notice: lock(&st.db.recovery_notice).take(),
         schema_version: st.db.schema_version(),
@@ -72,8 +74,8 @@ pub fn bootstrap(app: tauri::AppHandle, st: St) -> AppResult<Bootstrap> {
     })
 }
 
-const PATCHABLE: [&str; 13] =
-    ["image_generation", "image_model", "language", "theme", "provider", "mode", "models", "efforts", "update_repo", "check_updates_on_start", "claude_fallbacks", "sidebar_collapsed", "max_steps"];
+const PATCHABLE: [&str; 15] =
+    ["hide_legacy_models", "hidden_models", "image_generation", "image_model", "language", "theme", "provider", "mode", "models", "efforts", "update_repo", "check_updates_on_start", "claude_fallbacks", "sidebar_collapsed", "max_steps"];
 
 #[tauri::command]
 pub fn update_settings(st: St, patch: Value) -> AppResult<Settings> {
@@ -185,6 +187,38 @@ pub fn delete_conversation(st: St, id: String) -> AppResult<()> {
     }
     lock(&st.perms).remove(&id);
     st.db.delete_conversation(&id)
+}
+
+// ---------- conversation groups ----------
+
+#[tauri::command]
+pub fn list_groups(st: St) -> AppResult<Vec<ConversationGroup>> {
+    st.db.list_groups()
+}
+
+#[tauri::command]
+pub fn create_group(st: St, name: String) -> AppResult<ConversationGroup> {
+    st.db.create_group(&name)
+}
+
+#[tauri::command]
+pub fn rename_group(st: St, id: String, name: String) -> AppResult<()> {
+    st.db.rename_group(&id, &name)
+}
+
+#[tauri::command]
+pub fn set_group_collapsed(st: St, id: String, collapsed: bool) -> AppResult<()> {
+    st.db.set_group_collapsed(&id, collapsed)
+}
+
+#[tauri::command]
+pub fn delete_group(st: St, id: String) -> AppResult<()> {
+    st.db.delete_group(&id)
+}
+
+#[tauri::command]
+pub fn move_conversation(st: St, id: String, group_id: Option<String>) -> AppResult<()> {
+    st.db.move_conversation(&id, group_id.as_deref())
 }
 
 #[tauri::command]

@@ -21,7 +21,7 @@ const boot: Bootstrap = {
     base_urls: {},
     manual_models: {},
     workspace: "C:\\Users\\dev\\projects\\demo-app",
-    recent_workspaces: [],
+    recent_workspaces: ["C:\\Users\\dev\\projects\\demo-app", "D:\\work\\website", "D:\\notes"],
     disabled_skills: [],
     update_repo: "",
     check_updates_on_start: false,
@@ -30,6 +30,8 @@ const boot: Bootstrap = {
     max_steps: 40,
     image_generation: true,
     image_model: "gpt-image-2.6-flare",
+    hide_legacy_models: true,
+    hidden_models: [],
   },
   providers: [
     { id: "openai", has_key: true, base_url: "", default_base_url: "https://api.openai.com/v1" },
@@ -39,14 +41,17 @@ const boot: Bootstrap = {
   models: [
     { provider: "openai", id: "gpt-6-astra", display_name: "GPT-6 Astra", efforts: ["low", "medium", "high", "xhigh", "max"], default_effort: "medium", effort_update: "openai_item", tools: true, vision: true, context_window: 1050000, max_output: 128000, min_cache_tokens: 1024, recommended: ["coding"], adaptive_thinking: false, server_fallbacks: false, source: "builtin" },
     { provider: "openai", id: "gpt-6.1-terra", display_name: "GPT-6.1 Terra", efforts: ["none", "low", "medium", "high", "xhigh", "max"], default_effort: "medium", effort_update: "openai_item", tools: true, vision: true, context_window: 1050000, max_output: 128000, min_cache_tokens: 1024, recommended: ["office"], adaptive_thinking: false, server_fallbacks: false, source: "builtin" },
+    { provider: "openai", id: "gpt-5.5-mini", display_name: "gpt-5.5-mini", efforts: [], default_effort: null, effort_update: "param", tools: true, vision: false, context_window: 128000, max_output: 16000, min_cache_tokens: 0, recommended: [], adaptive_thinking: false, server_fallbacks: false, source: "remote" },
     { provider: "deepseek", id: "deepseek-v4-pro", display_name: "DeepSeek V4 Pro", efforts: ["none", "low", "high", "max"], default_effort: "high", effort_update: "param", tools: true, vision: false, context_window: 1048576, max_output: 393216, min_cache_tokens: 0, recommended: ["coding"], adaptive_thinking: false, server_fallbacks: false, source: "builtin" },
     { provider: "anthropic", id: "claude-opus-5-5", display_name: "Claude Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], default_effort: "medium", effort_update: "anthropic_system_message", tools: true, vision: true, context_window: 1000000, max_output: 128000, min_cache_tokens: 512, recommended: ["coding"], adaptive_thinking: true, server_fallbacks: true, source: "builtin" },
     { provider: "anthropic", id: "claude-sonnet-5-5", display_name: "Claude Sonnet 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], default_effort: "high", effort_update: "anthropic_system_message", tools: true, vision: true, context_window: 1000000, max_output: 128000, min_cache_tokens: 512, recommended: ["office"], adaptive_thinking: true, server_fallbacks: true, source: "builtin" },
   ],
   conversations: [
-    { id: "c1", title: "Fix flaky login test", mode: "coding", created_at: now, updated_at: now },
+    { id: "c1", title: "Fix flaky login test", mode: "coding", created_at: now, updated_at: now, group_id: "g1" },
     { id: "c2", title: "Translate release notes to English", mode: "office", created_at: now, updated_at: now },
+    { id: "c3", title: "Draft Q4 newsletter", mode: "office", created_at: now, updated_at: now },
   ],
+  groups: [{ id: "g1", name: "Ycode dev", sort: 0, collapsed: false, created_at: now }],
   skills: [{ name: "release-notes", description: "Draft release notes from a git log. Use when preparing a release.", enabled: true, path: "", has_scripts: false, warnings: [] }],
 };
 
@@ -109,7 +114,9 @@ const convo: Message[] = [
 
 export function installMock() {
   mockWindows("main");
-  mockIPC((cmd, args) => {
+  // Real IPC serialises every payload; copy so the store never shares objects with the mock.
+  mockIPC((cmd, args) => structuredClone(handle(cmd, args)));
+  function handle(cmd: string, args: unknown): unknown {
     switch (cmd) {
       case "bootstrap":
         return boot;
@@ -120,6 +127,11 @@ export function installMock() {
         return { ...boot.conversations[0], messages: convo, usage: { input_tokens: 30000, output_tokens: 900, cached_input_tokens: 24000, eligible_input_tokens: 30000 } };
       case "list_conversations":
         return boot.conversations;
+      case "create_group": {
+        const g = { id: `g${Date.now()}`, name: (args as { name: string }).name.trim(), sort: boot.groups.length, collapsed: false, created_at: Date.now() };
+        boot.groups.push(g);
+        return g;
+      }
       case "list_skills":
         return boot.skills;
       case "read_image":
@@ -127,5 +139,5 @@ export function installMock() {
       default:
         return null;
     }
-  });
+  }
 }

@@ -58,6 +58,9 @@ pub struct RunParams {
     pub model: String,
     pub effort: Option<Effort>,
     pub mode: Mode,
+    /// Sidebar group for a brand-new conversation.
+    #[serde(default)]
+    pub group_id: Option<String>,
 }
 
 fn title_from(text: &str) -> String {
@@ -168,7 +171,7 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
     let mut messages = match state.db.get_conversation(&p.conversation_id) {
         Ok(c) => c.messages,
         Err(AppError::NotFound(_)) => {
-            state.db.create_conversation(&p.conversation_id, p.mode, workspace.as_deref())?;
+            state.db.create_conversation_in(&p.conversation_id, p.mode, workspace.as_deref(), p.group_id.as_deref())?;
             vec![]
         }
         Err(e) => return Err(e),

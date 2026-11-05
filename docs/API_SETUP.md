@@ -48,6 +48,11 @@ and the value displayed is exactly what is sent:
 | DeepSeek | `thinking` + `reasoning_effort` | off (thinking disabled), low, high, max |
 | Claude 5.x | `output_config.effort` (+ adaptive thinking) | low, medium, high, xhigh, max |
 
+The control is a dropdown next to the model picker. Each entry shows the localised level,
+the model's default, and the exact value sent (e.g. DeepSeek "Off" = `thinking: disabled`).
+DeepSeek documents only off / low / high / max — "medium" is merely an alias for high, so it
+is not offered.
+
 Your last choice is remembered per model. Changing the level mid-chat on GPT-6 and
 Claude 5.x models uses the vendors' in-band mechanisms (`configuration_update`;
 per-message effort system message) so the prompt cache survives.

@@ -34,6 +34,10 @@ sync, no telemetry.
   cache hit rate (N/A when the provider gives no reliable denominator).
 - **Image generation** — GPT Image (`gpt-image-2.6-flare` by default) as `generate_image` /
   `edit_image` tools usable from any chat model; images shown inline, saved locally.
+- **Sidebar sections** — create, rename, collapse and delete sections; start a chat in a
+  section or move chats between sections (stored locally, schema v2).
+- **Model list hygiene** — "Hide older models" (GPT below 5.5 / older minis, Claude 4.x and
+  older, retired DeepSeek names) plus per-model hide/show.
 - **Bilingual UI** (简体中文 / English), light/dark/system theme, collapsible sidebar.
 - **Signed auto-update** via GitHub Releases; never installs without confirmation.
 

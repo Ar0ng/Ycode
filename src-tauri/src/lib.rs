@@ -58,6 +58,12 @@ pub fn run() {
             commands::open_data_folder,
             commands::read_image,
             commands::save_image_as,
+            commands::list_groups,
+            commands::create_group,
+            commands::rename_group,
+            commands::set_group_collapsed,
+            commands::delete_group,
+            commands::move_conversation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Ycode");

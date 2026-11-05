@@ -107,7 +107,7 @@ fn collector() -> (Emit, Events) {
 }
 
 fn params(provider: ProviderId, model: &str, text: &str, effort: Option<Effort>, mode: Mode) -> RunParams {
-    RunParams { conversation_id: "conv-1".into(), text: Some(text.into()), attachments: vec![], provider, model: model.into(), effort, mode }
+    RunParams { conversation_id: "conv-1".into(), text: Some(text.into()), attachments: vec![], provider, model: model.into(), effort, mode, group_id: None }
 }
 
 fn ds_text(text: &str, hit: u64, miss: u64) -> String {

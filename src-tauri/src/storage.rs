@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// GitHub repository the updater checks by default (editable in Settings › Updates).
 pub const DEFAULT_UPDATE_REPO: &str = "Ar0ng/Ycode";
@@ -37,7 +37,25 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_conv_updated ON conversations(updated_at DESC);
     CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+    // v1 -> v2: conversation groups (sidebar sections). Existing chats stay ungrouped.
+    "CREATE TABLE IF NOT EXISTS conv_groups (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        sort INTEGER NOT NULL DEFAULT 0,
+        collapsed INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+    );
+    ALTER TABLE conversations ADD COLUMN group_id TEXT;",
 ];
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConversationGroup {
+    pub id: String,
+    pub name: String,
+    pub sort: i64,
+    pub collapsed: bool,
+    pub created_at: i64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationSummary {
@@ -47,6 +65,8 @@ pub struct ConversationSummary {
     pub workspace: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    #[serde(default)]
+    pub group_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,6 +110,10 @@ pub struct Settings {
     /// Offer GPT Image tools (needs an OpenAI key; billed by OpenAI).
     pub image_generation: bool,
     pub image_model: String,
+    /// Hide older model generations in the model picker (e.g. GPT below 5.5, Claude 4.x).
+    pub hide_legacy_models: bool,
+    /// Models hidden by hand, as "provider:model".
+    pub hidden_models: Vec<String>,
 }
 
 impl Default for Settings {
@@ -115,6 +139,8 @@ impl Default for Settings {
             max_steps: 40,
             image_generation: true,
             image_model: crate::images::DEFAULT_MODEL.into(),
+            hide_legacy_models: true,
+            hidden_models: vec![],
         }
     }
 }
@@ -194,17 +220,80 @@ impl Db {
     // ---------- conversations ----------
 
     pub fn create_conversation(&self, id: &str, mode: Mode, workspace: Option<&str>) -> AppResult<ConversationSummary> {
+        self.create_conversation_in(id, mode, workspace, None)
+    }
+
+    pub fn create_conversation_in(&self, id: &str, mode: Mode, workspace: Option<&str>, group: Option<&str>) -> AppResult<ConversationSummary> {
         let now = now_ms();
-        self.lock().execute(
-            "INSERT INTO conversations(id,title,mode,workspace,created_at,updated_at) VALUES(?1,'',?2,?3,?4,?4)",
-            params![id, mode_str(mode), workspace, now],
+        let c = self.lock();
+        // Ignore a group id that doesn't exist (e.g. deleted meanwhile).
+        let group: Option<String> = match group {
+            Some(g) => c.query_row("SELECT id FROM conv_groups WHERE id=?1", params![g], |r| r.get(0)).optional()?,
+            None => None,
+        };
+        c.execute(
+            "INSERT INTO conversations(id,title,mode,workspace,created_at,updated_at,group_id) VALUES(?1,'',?2,?3,?4,?4,?5)",
+            params![id, mode_str(mode), workspace, now, group],
         )?;
-        Ok(ConversationSummary { id: id.into(), title: String::new(), mode, workspace: workspace.map(String::from), created_at: now, updated_at: now })
+        Ok(ConversationSummary { id: id.into(), title: String::new(), mode, workspace: workspace.map(String::from), created_at: now, updated_at: now, group_id: group })
+    }
+
+    // ---------- groups ----------
+
+    pub fn list_groups(&self) -> AppResult<Vec<ConversationGroup>> {
+        let c = self.lock();
+        let mut st = c.prepare("SELECT id,name,sort,collapsed,created_at FROM conv_groups ORDER BY sort, created_at")?;
+        let rows = st.query_map([], |r| Ok(ConversationGroup { id: r.get(0)?, name: r.get(1)?, sort: r.get(2)?, collapsed: r.get::<_, i64>(3)? != 0, created_at: r.get(4)? }))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    pub fn create_group(&self, name: &str) -> AppResult<ConversationGroup> {
+        let name = clean_group_name(name)?;
+        let c = self.lock();
+        let sort: i64 = c.query_row("SELECT COALESCE(MAX(sort),-1)+1 FROM conv_groups", [], |r| r.get(0))?;
+        let g = ConversationGroup { id: uuid::Uuid::new_v4().to_string(), name, sort, collapsed: false, created_at: now_ms() };
+        c.execute("INSERT INTO conv_groups(id,name,sort,collapsed,created_at) VALUES(?1,?2,?3,0,?4)", params![g.id, g.name, g.sort, g.created_at])?;
+        Ok(g)
+    }
+
+    pub fn rename_group(&self, id: &str, name: &str) -> AppResult<()> {
+        let name = clean_group_name(name)?;
+        if self.lock().execute("UPDATE conv_groups SET name=?1 WHERE id=?2", params![name, id])? == 0 {
+            return Err(AppError::NotFound("group".into()));
+        }
+        Ok(())
+    }
+
+    pub fn set_group_collapsed(&self, id: &str, collapsed: bool) -> AppResult<()> {
+        self.lock().execute("UPDATE conv_groups SET collapsed=?1 WHERE id=?2", params![collapsed as i64, id])?;
+        Ok(())
+    }
+
+    /// Delete a group; its chats are kept and become ungrouped.
+    pub fn delete_group(&self, id: &str) -> AppResult<()> {
+        let mut c = self.lock();
+        let tx = c.transaction()?;
+        tx.execute("UPDATE conversations SET group_id=NULL WHERE group_id=?1", params![id])?;
+        tx.execute("DELETE FROM conv_groups WHERE id=?1", params![id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn move_conversation(&self, conv: &str, group: Option<&str>) -> AppResult<()> {
+        let c = self.lock();
+        if let Some(g) = group {
+            let exists: Option<String> = c.query_row("SELECT id FROM conv_groups WHERE id=?1", params![g], |r| r.get(0)).optional()?;
+            if exists.is_none() {
+                return Err(AppError::NotFound("group".into()));
+            }
+        }
+        c.execute("UPDATE conversations SET group_id=?1 WHERE id=?2", params![group, conv])?;
+        Ok(())
     }
 
     pub fn list_conversations(&self) -> AppResult<Vec<ConversationSummary>> {
         let c = self.lock();
-        let mut st = c.prepare("SELECT id,title,mode,workspace,created_at,updated_at FROM conversations ORDER BY updated_at DESC LIMIT 500")?;
+        let mut st = c.prepare("SELECT id,title,mode,workspace,created_at,updated_at,group_id FROM conversations ORDER BY updated_at DESC LIMIT 1000")?;
         let rows = st.query_map([], row_summary)?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
@@ -212,8 +301,8 @@ impl Db {
     pub fn get_conversation(&self, id: &str) -> AppResult<Conversation> {
         let c = self.lock();
         let (summary, usage_json): (ConversationSummary, Option<String>) = c
-            .query_row("SELECT id,title,mode,workspace,created_at,updated_at,usage_json FROM conversations WHERE id=?1", params![id], |r| {
-                Ok((row_summary(r)?, r.get(6)?))
+            .query_row("SELECT id,title,mode,workspace,created_at,updated_at,group_id,usage_json FROM conversations WHERE id=?1", params![id], |r| {
+                Ok((row_summary(r)?, r.get(7)?))
             })
             .optional()?
             .ok_or_else(|| AppError::NotFound(format!("conversation {id}")))?;
@@ -308,7 +397,16 @@ fn row_summary(r: &rusqlite::Row) -> rusqlite::Result<ConversationSummary> {
         workspace: r.get(3)?,
         created_at: r.get(4)?,
         updated_at: r.get(5)?,
+        group_id: r.get(6)?,
     })
+}
+
+fn clean_group_name(name: &str) -> AppResult<String> {
+    let n: String = name.trim().chars().filter(|c| !c.is_control()).collect();
+    if n.is_empty() || n.chars().count() > 60 {
+        return Err(AppError::Invalid("group name must be 1-60 characters".into()));
+    }
+    Ok(n)
 }
 
 pub fn data_dir_file(dir: &Path, name: &str) -> PathBuf {
@@ -362,6 +460,53 @@ mod tests {
         db.lock().execute("INSERT INTO kv(key,value) VALUES('settings','{not json')", []).unwrap();
         assert_eq!(db.load_settings().theme, "system");
         assert!(db.recovery_notice.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn groups_create_move_delete() {
+        let db = Db::open_in_memory().unwrap();
+        let g = db.create_group("  Work  ").unwrap();
+        assert_eq!(g.name, "Work");
+        assert!(db.create_group("   ").is_err());
+        db.create_conversation_in("c1", Mode::Office, None, Some(&g.id)).unwrap();
+        db.create_conversation_in("c2", Mode::Office, None, Some("missing")).unwrap();
+        db.create_conversation("c3", Mode::Office, None).unwrap();
+        let by_id = |id: &str| db.list_conversations().unwrap().into_iter().find(|c| c.id == id).unwrap();
+        assert_eq!(by_id("c1").group_id.as_deref(), Some(g.id.as_str()));
+        assert_eq!(by_id("c2").group_id, None, "unknown group ignored");
+        db.move_conversation("c3", Some(&g.id)).unwrap();
+        assert!(db.move_conversation("c3", Some("nope")).is_err());
+        db.rename_group(&g.id, "Projects").unwrap();
+        db.set_group_collapsed(&g.id, true).unwrap();
+        let gs = db.list_groups().unwrap();
+        assert_eq!((gs[0].name.as_str(), gs[0].collapsed), ("Projects", true));
+        db.delete_group(&g.id).unwrap();
+        assert!(db.list_groups().unwrap().is_empty());
+        assert_eq!(by_id("c1").group_id, None, "chats survive group deletion");
+        assert_eq!(db.get_conversation("c3").unwrap().summary.group_id, None);
+    }
+
+    #[test]
+    fn migrates_v1_database_to_v2_keeping_chats() {
+        let dir = std::env::temp_dir().join(format!("ycode-mig-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("ycode.db");
+        {
+            // Build a database exactly as version 0.1.x (schema v1) left it.
+            let c = Connection::open(&p).unwrap();
+            c.execute_batch(&format!("BEGIN; {} PRAGMA user_version = 1; COMMIT;", MIGRATIONS[0])).unwrap();
+            c.execute("INSERT INTO conversations(id,title,mode,workspace,created_at,updated_at) VALUES('old','Old chat','office',NULL,1,1)", []).unwrap();
+            c.execute("INSERT INTO messages(id,conversation_id,seq,json) VALUES('m1','old',0,?1)", params![serde_json::to_string(&Message::new(Role::User)).unwrap()]).unwrap();
+        }
+        let db = Db::open(&p).unwrap();
+        assert_eq!(db.schema_version(), 2);
+        assert!(db.recovery_notice.lock().unwrap().is_none());
+        let c = db.get_conversation("old").unwrap();
+        assert_eq!((c.summary.title.as_str(), c.messages.len(), c.summary.group_id.clone()), ("Old chat", 1, None));
+        let g = db.create_group("New").unwrap();
+        db.move_conversation("old", Some(&g.id)).unwrap();
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

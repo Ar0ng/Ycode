@@ -58,7 +58,7 @@ export function ErrorBox({ error, onRetry }: { error: AppError; onRetry?: () => 
 
 const UserBubble = memo(function UserBubble({ m }: { m: Message }) {
   return (
-    <div className="msg fade-in flex justify-end py-2">
+    <div className="msg fade-in flex flex-col items-end py-2">
       <div className="max-w-[85%] rounded-2xl bg-hover px-4 py-2.5">
         {m.attachments && m.attachments.length > 0 && (
           <div className="mb-1.5 flex flex-wrap gap-1">
@@ -72,6 +72,7 @@ const UserBubble = memo(function UserBubble({ m }: { m: Message }) {
         )}
         <div className="text-[14px] leading-relaxed whitespace-pre-wrap">{m.text}</div>
       </div>
+      {m.text && <CopyButton text={m.text} className="mt-0.5 text-faint" />}
     </div>
   );
 });

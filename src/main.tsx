@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import "./styles.css";
 
 // Apply the OS theme before first paint to avoid a white flash in dark mode.
@@ -24,7 +25,10 @@ async function start() {
   }
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <App />
+      {/* Last-resort guard: an error anywhere (e.g. the sidebar) never leaves a blank window. */}
+      <ErrorBoundary onBack={() => location.reload()}>
+        <App />
+      </ErrorBoundary>
     </React.StrictMode>,
   );
 }

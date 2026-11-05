@@ -4,6 +4,7 @@ import type {
   Attachment,
   Bootstrap,
   Conversation,
+  ConversationGroup,
   ConversationSummary,
   Effort,
   Mode,
@@ -36,6 +37,7 @@ export const api = {
       model: string;
       effort: Effort | null;
       mode: Mode;
+      group_id?: string | null;
     },
     onEvent: (e: AgentEvent) => void,
   ) => {
@@ -60,6 +62,11 @@ export const api = {
     return invoke<void>("install_update", { onProgress: ch });
   },
   dataFolder: () => invoke<string>("open_data_folder"),
+  createGroup: (name: string) => invoke<ConversationGroup>("create_group", { name }),
+  renameGroup: (id: string, name: string) => invoke<void>("rename_group", { id, name }),
+  setGroupCollapsed: (id: string, collapsed: boolean) => invoke<void>("set_group_collapsed", { id, collapsed }),
+  deleteGroup: (id: string) => invoke<void>("delete_group", { id }),
+  moveConversation: (id: string, groupId: string | null) => invoke<void>("move_conversation", { id, groupId }),
   readImage: (id: string) => invoke<string>("read_image", { id }),
   saveImageAs: (id: string, dest: string) => invoke<void>("save_image_as", { id, dest }),
 };

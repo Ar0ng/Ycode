@@ -1,36 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, FileText, Folder, Image as ImageIcon, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, FileText, Image as ImageIcon, Paperclip, Square, X } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useSelection, useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
 import { api } from "../lib/api";
-import type { AppError, Attachment, Mode } from "../lib/types";
+import type { AppError, Attachment } from "../lib/types";
 import { ModelPicker } from "./ModelPicker";
-import { EffortSlider } from "./EffortSlider";
-
-function Segmented({ value, onChange }: { value: Mode; onChange: (m: Mode) => void }) {
-  const t = useT();
-  return (
-    <div className="flex rounded-md border border-line p-0.5 text-xs" role="tablist">
-      {(["office", "coding"] as Mode[]).map((m) => (
-        <button
-          key={m}
-          type="button"
-          role="tab"
-          aria-selected={value === m}
-          onClick={() => onChange(m)}
-          className={`rounded-[5px] px-2 py-0.5 ${value === m ? "bg-hover font-medium text-fg" : "text-muted hover:text-fg"}`}
-        >
-          {t(`mode.${m}`)}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function folderName(p: string) {
-  return p.split(/[\\/]/).filter(Boolean).pop() ?? p;
-}
+import { EffortPicker } from "./EffortPicker";
 
 export function Composer({ centered }: { centered: boolean }) {
   const t = useT();
@@ -38,12 +14,9 @@ export function Composer({ centered }: { centered: boolean }) {
   const currentId = useStore((s) => s.currentId);
   const running = useStore((s) => (s.currentId ? !!s.running[s.currentId] : false));
   const providers = useStore((s) => s.providers);
-  const workspace = useStore((s) => s.settings?.workspace ?? null);
   const send = useStore((s) => s.send);
   const stop = useStore((s) => s.stop);
-  const setMode = useStore((s) => s.setMode);
   const setEffort = useStore((s) => s.setEffort);
-  const setWorkspace = useStore((s) => s.setWorkspace);
   const [text, setText] = useState("");
   const [atts, setAtts] = useState<Attachment[]>([]);
   const [attErr, setAttErr] = useState<string | null>(null);
@@ -89,11 +62,6 @@ export function Composer({ centered }: { centered: boolean }) {
     }
   };
 
-  const pickFolder = async () => {
-    const dir = await openDialog({ directory: true, multiple: false, defaultPath: workspace ?? undefined });
-    if (typeof dir === "string") setWorkspace(dir);
-  };
-
   return (
     <div className={`w-full ${centered ? "max-w-[720px]" : "max-w-[800px]"} mx-auto`}>
       <div className="rounded-2xl border border-line bg-elev shadow-[0_1px_2px_rgba(0,0,0,0.04)] focus-within:border-line-strong">
@@ -133,28 +101,9 @@ export function Composer({ centered }: { centered: boolean }) {
           <button type="button" onClick={pickFiles} title={t("composer.attach")} className="rounded-md p-1.5 text-muted hover:bg-hover hover:text-fg">
             <Paperclip size={16} />
           </button>
-          <Segmented value={sel.mode} onChange={setMode} />
           <ModelPicker provider={sel.provider} model={sel.model} caps={sel.caps} />
-          <EffortSlider caps={sel.caps} value={sel.effort} onChange={setEffort} />
-          <div className="ml-auto flex items-center gap-1">
-            {(sel.mode === "coding" || workspace) && (
-              <span className="flex items-center">
-                <button
-                  type="button"
-                  onClick={pickFolder}
-                  title={workspace ?? t("composer.folder")}
-                  className="flex max-w-[180px] items-center gap-1 rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg"
-                >
-                  <Folder size={14} />
-                  <span className="truncate">{workspace ? folderName(workspace) : t("composer.noFolder")}</span>
-                </button>
-                {workspace && (
-                  <button type="button" title={t("composer.clearFolder")} onClick={() => setWorkspace(null)} className="rounded p-0.5 text-faint hover:text-fg">
-                    <X size={12} />
-                  </button>
-                )}
-              </span>
-            )}
+          <EffortPicker caps={sel.caps} value={sel.effort} onChange={setEffort} />
+          <div className="ml-auto">
             {running ? (
               <button type="button" onClick={stop} title={t("composer.stop")} className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-accent-fg">
                 <Square size={12} fill="currentColor" />

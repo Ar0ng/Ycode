@@ -4,6 +4,7 @@ import { clampEffort, defaultModel, supportedEfforts } from "./effort";
 import { dictionaries, translate } from "./i18n";
 import { fmt, hitRate } from "../components/UsageLine";
 import type { ModelCaps } from "./types";
+import { isHidden, isLegacy } from "./models";
 
 const caps = (over: Partial<ModelCaps>): ModelCaps => ({
   provider: "deepseek",
@@ -56,6 +57,25 @@ describe("i18n", () => {
   it("covers every provider error kind", () => {
     const kinds = ["missing_key", "invalid_key", "insufficient_balance", "model_not_found", "model_no_access", "rate_limited", "overloaded", "timeout", "network", "stream_interrupted", "bad_request", "refused", "server", "unknown"];
     for (const k of kinds) expect(Object.keys(dictionaries["zh-CN"])).toContain(`err.${k}`);
+  });
+});
+
+describe("legacy models", () => {
+  const m = (provider: ModelCaps["provider"], id: string, note?: string) => caps({ provider, id, note });
+  it("hides older generations per provider", () => {
+    for (const id of ["gpt-5.5-mini", "gpt-5.5-nano", "gpt-5.4", "gpt-5", "gpt-4.1", "gpt-4o", "o3", "o4-mini", "chatgpt-4o-latest"]) expect(isLegacy(m("openai", id))).toBe(true);
+    for (const id of ["gpt-5.5", "gpt-5.6", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-luna"]) expect(isLegacy(m("openai", id))).toBe(false);
+    for (const id of ["claude-opus-4-8", "claude-sonnet-4-5-20250929", "claude-haiku-4-5", "claude-3-5-sonnet-20241022"]) expect(isLegacy(m("anthropic", id))).toBe(true);
+    for (const id of ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-opus-5"]) expect(isLegacy(m("anthropic", id))).toBe(false);
+    expect(isLegacy(m("anthropic", "claude-x-9", "deprecated"))).toBe(true);
+    for (const id of ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"]) expect(isLegacy(m("deepseek", id))).toBe(true);
+    for (const id of ["deepseek-flash", "deepseek-v4-pro"]) expect(isLegacy(m("deepseek", id))).toBe(false);
+  });
+  it("combines the auto rule with hand-hidden models", () => {
+    const s = { hide_legacy_models: false, hidden_models: ["openai:gpt-6-luna"] };
+    expect(isHidden(m("openai", "gpt-6-luna"), s)).toBe(true);
+    expect(isHidden(m("openai", "gpt-5.5-mini"), s)).toBe(false);
+    expect(isHidden(m("openai", "gpt-5.5-mini"), { ...s, hide_legacy_models: true })).toBe(true);
   });
 });
 

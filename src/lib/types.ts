@@ -75,6 +75,15 @@ export interface ConversationSummary {
   workspace?: string | null;
   created_at: number;
   updated_at: number;
+  group_id?: string | null;
+}
+
+export interface ConversationGroup {
+  id: string;
+  name: string;
+  sort: number;
+  collapsed: boolean;
+  created_at: number;
 }
 
 export interface Conversation extends ConversationSummary {
@@ -121,6 +130,8 @@ export interface Settings {
   max_steps: number;
   image_generation: boolean;
   image_model: string;
+  hide_legacy_models: boolean;
+  hidden_models: string[];
 }
 
 export interface ProviderInfo {
@@ -148,6 +159,7 @@ export interface Bootstrap {
   providers: ProviderInfo[];
   models: ModelCaps[];
   conversations: ConversationSummary[];
+  groups: ConversationGroup[];
   skills: SkillMeta[];
   recovery_notice?: string | null;
   schema_version: number;
