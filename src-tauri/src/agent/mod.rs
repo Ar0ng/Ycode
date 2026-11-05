@@ -462,6 +462,11 @@ async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall,
 }
 
 fn session_allows(state: &AppState, conv: &str, workspace: Option<&std::path::Path>, req: &ApprovalRequest) -> bool {
+    // "Edit within workspace" mode: file edits (always inside the workspace by
+    // construction) need no prompt. Commands and outside reads still ask.
+    if req.kind == ApprovalKind::WriteFile && workspace.is_some() && state.settings().auto_approve_edits {
+        return true;
+    }
     let perms = lock(&state.perms);
     let Some(p) = perms.get(conv) else { return false };
     match req.kind {

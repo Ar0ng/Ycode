@@ -53,14 +53,15 @@ export function ModelPicker({ provider, model, caps }: { provider: ProviderId; m
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex max-w-[220px] items-center gap-1 rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg"
+        className="flex max-w-[280px] items-center gap-1.5 rounded-md px-2 py-1 text-[13px] text-fg hover:bg-hover"
         title={t("model.pick")}
       >
-        <span className="truncate font-medium text-fg">{caps?.display_name ?? model ?? "—"}</span>
+        <span className="truncate">{caps?.display_name ?? model ?? "—"}</span>
+        <span className="shrink-0 rounded-md bg-hover px-1.5 py-px text-[11px] text-muted">{t(`provider.short.${provider}`)}</span>
         <ChevronDown size={13} />
       </button>
       {open && (
-        <div className="fade-in absolute bottom-full left-0 z-30 mb-1 max-h-[60vh] w-80 overflow-y-auto rounded-lg border border-line bg-elev p-1 shadow-lg">
+        <div className="fade-in absolute right-0 bottom-full z-30 mb-1 max-h-[60vh] w-80 overflow-y-auto rounded-lg border border-line bg-elev p-1 shadow-lg">
           {PROVIDERS.map((p) => {
             // Hidden (legacy or hand-hidden) models stay visible only while selected.
             const list = models.filter(

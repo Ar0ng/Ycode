@@ -447,3 +447,24 @@ async fn image_tools_hidden_without_openai_key_or_when_disabled() {
         assert!(!names.contains(&"generate_image".to_string()));
     }
 }
+
+
+#[tokio::test]
+async fn auto_approve_edits_mode_writes_without_prompt_but_commands_still_ask() {
+    let ws = temp_ws();
+    let m = mock(vec![
+        Reply::Sse(ds_tool("write_file", "{\"path\":\"auto.txt\",\"content\":\"ok\"}")),
+        Reply::Sse(ds_text("Written.", 0, 10)),
+    ])
+    .await;
+    let st = state(ProviderId::Deepseek, m.port, Some(&ws));
+    st.update_settings(|s| s.auto_approve_edits = true).unwrap();
+    let (emit, ev) = collector();
+    run(st.clone(), params(ProviderId::Deepseek, "deepseek-v4-pro", "write", None, Mode::Coding), Cancel::default(), emit).await;
+    assert_eq!(std::fs::read_to_string(ws.join("auto.txt")).unwrap(), "ok");
+    let asked = ev.lock().unwrap().iter().any(|e| matches!(e, AgentEvent::ToolStatus { approval: Some(_), .. }));
+    assert!(!asked, "no approval prompt for workspace edits in this mode");
+    // Commands are never auto-approved by this mode.
+    let req = ApprovalRequest { kind: ApprovalKind::RunCommand, target: "dir".into(), diff: None, warning: None };
+    assert!(!session_allows(&st, "conv-1", Some(&ws), &req));
+}

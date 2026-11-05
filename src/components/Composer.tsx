@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, FileText, Image as ImageIcon, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, FileText, Image as ImageIcon, Plus, Square, X } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useSelection, useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
@@ -7,6 +7,8 @@ import { api } from "../lib/api";
 import type { AppError, Attachment } from "../lib/types";
 import { ModelPicker } from "./ModelPicker";
 import { EffortPicker } from "./EffortPicker";
+import { ApprovalChip, ModeChip } from "./ComposerChips";
+import { WorkspacePicker } from "./TopBar";
 
 export function Composer({ centered }: { centered: boolean }) {
   const t = useT();
@@ -64,7 +66,13 @@ export function Composer({ centered }: { centered: boolean }) {
 
   return (
     <div className={`w-full ${centered ? "max-w-[720px]" : "max-w-[800px]"} mx-auto`}>
-      <div className="rounded-2xl border border-line bg-elev shadow-[0_1px_2px_rgba(0,0,0,0.04)] focus-within:border-line-strong">
+      {centered && (
+        <div className="mb-1.5 flex items-center gap-1 px-1">
+          <WorkspacePicker plain />
+          <ModeChip />
+        </div>
+      )}
+      <div className="rounded-[22px] border border-line bg-elev shadow-[0_1px_3px_rgba(0,0,0,0.05)] focus-within:border-line-strong">
         {atts.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-3 pt-3">
             {atts.map((a) => (
@@ -97,13 +105,21 @@ export function Composer({ centered }: { centered: boolean }) {
           placeholder={t("composer.placeholder")}
           className="block max-h-[35vh] w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[14px] leading-relaxed outline-none placeholder:text-faint focus-visible:outline-none"
         />
-        <div className="flex flex-wrap items-center gap-1 px-2 pb-2">
-          <button type="button" onClick={pickFiles} title={t("composer.attach")} className="rounded-md p-1.5 text-muted hover:bg-hover hover:text-fg">
-            <Paperclip size={16} />
+        <div className="flex flex-wrap items-center gap-1 px-2.5 pb-2.5">
+          <button
+            type="button"
+            onClick={pickFiles}
+            title={t("composer.attach")}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-hover text-muted hover:bg-line hover:text-fg"
+          >
+            <Plus size={17} />
           </button>
-          <ModelPicker provider={sel.provider} model={sel.model} caps={sel.caps} />
-          <EffortPicker caps={sel.caps} value={sel.effort} onChange={setEffort} />
-          <div className="ml-auto">
+          <ApprovalChip />
+          <div className="ml-auto flex items-center gap-0.5">
+            <ModelPicker provider={sel.provider} model={sel.model} caps={sel.caps} />
+            <EffortPicker caps={sel.caps} value={sel.effort} onChange={setEffort} />
+          </div>
+          <div className="ml-1">
             {running ? (
               <button type="button" onClick={stop} title={t("composer.stop")} className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-accent-fg">
                 <Square size={12} fill="currentColor" />

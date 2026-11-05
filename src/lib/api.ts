@@ -62,6 +62,7 @@ export const api = {
     return invoke<void>("install_update", { onProgress: ch });
   },
   dataFolder: () => invoke<string>("open_data_folder"),
+  setAvatar: (dataUrl: string | null) => invoke<void>("set_avatar", { dataUrl }),
   createGroup: (name: string) => invoke<ConversationGroup>("create_group", { name }),
   renameGroup: (id: string, name: string) => invoke<void>("rename_group", { id, name }),
   setGroupCollapsed: (id: string, collapsed: boolean) => invoke<void>("set_group_collapsed", { id, collapsed }),

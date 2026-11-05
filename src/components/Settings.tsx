@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Eye, EyeOff, FolderOpen, Loader2, RefreshCw, Trash2, X } from "lucide-react";
+import { Eye, EyeOff, FolderOpen, Loader2, RefreshCw, Trash2, X } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { useStore } from "../lib/store";
 import { useT, type Key } from "../lib/i18n";
 import { api } from "../lib/api";
-import type { AppError, ProviderId, UpdateInfo } from "../lib/types";
+import type { AppError, ProviderId } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { isLegacy, modelKey } from "../lib/models";
 import { displayVersion } from "../lib/format";
@@ -318,78 +317,25 @@ function Updates() {
   const [repo, setRepo] = useState(s.update_repo);
   // Show what the backend actually stored (an emptied field becomes the default repo).
   useEffect(() => setRepo(s.update_repo), [s.update_repo]);
-  const [info, setInfo] = useState<UpdateInfo | null>(null);
-  const [state, setState] = useState<"idle" | "checking" | "downloading" | "done">("idle");
-  const [pct, setPct] = useState("");
-  const [err, setErr] = useState<string | null>(null);
-
-  const check = async () => {
-    setErr(null);
-    setInfo(null);
-    setState("checking");
-    try {
-      setInfo(await api.checkUpdate());
-    } catch (e) {
-      setErr(errText(t, e));
-    }
-    setState("idle");
-  };
-
   return (
     <div>
-      <Row label={t("updates.repo")} hint={t("updates.repoHint")}>
-        <input value={repo} placeholder="Ar0ng/Ycode" onChange={(e) => setRepo(e.target.value)} onBlur={() => repo.trim() !== s.update_repo && patch({ update_repo: repo.trim() })} className={`${inputCls} w-56 font-mono text-xs`} />
+      <Row label={t("settings.autoRepo")} hint={t("settings.autoRepoHint")}>
+        <input type="checkbox" checked={s.auto_update_repo} onChange={(e) => patch({ auto_update_repo: e.target.checked })} />
       </Row>
+      {!s.auto_update_repo && (
+        <Row label={t("updates.repo")} hint={t("updates.repoHint")}>
+          <input
+            value={repo}
+            placeholder="Ar0ng/Ycode"
+            onChange={(e) => setRepo(e.target.value)}
+            onBlur={() => repo.trim() !== s.update_repo && patch({ update_repo: repo.trim() })}
+            className={`${inputCls} w-56 font-mono text-xs`}
+          />
+        </Row>
+      )}
       <Row label={t("updates.onStart")}>
         <input type="checkbox" checked={s.check_updates_on_start} onChange={(e) => patch({ check_updates_on_start: e.target.checked })} />
       </Row>
-      <div className="mt-4 flex items-center gap-3">
-        <button type="button" className={btnCls} disabled={state !== "idle" || !s.update_repo} onClick={check}>
-          {state === "checking" ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-          {t("updates.check")}
-        </button>
-        {!s.update_repo && <span className="text-xs text-faint">{t("updates.notConfigured")}</span>}
-      </div>
-      {err && <div className="mt-3 text-xs text-danger">{err}</div>}
-      {info && !info.available && (
-        <div className="mt-3 flex items-center gap-1.5 text-xs text-ok">
-          <Check size={13} />
-          {t("updates.none", { version: displayVersion(info.current_version) })}
-        </div>
-      )}
-      {info?.available && (
-        <div className="mt-3 rounded-lg border border-line p-3">
-          <div className="mb-1 text-[13px] font-medium">{t("updates.available", { version: displayVersion(info.version) })}</div>
-          {info.notes && <pre className="mb-2 max-h-48 overflow-auto font-sans text-xs whitespace-pre-wrap text-muted">{info.notes}</pre>}
-          {state === "done" ? (
-            <div className="flex items-center gap-3 text-xs">
-              {t("updates.restart")}
-              <button type="button" className={btnCls} onClick={() => relaunch()}>
-                {t("updates.restartNow")}
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className={btnCls}
-              disabled={state === "downloading"}
-              onClick={async () => {
-                setState("downloading");
-                setErr(null);
-                try {
-                  await api.installUpdate((p) => setPct(p.total ? `${Math.round((p.downloaded / p.total) * 100)}%` : `${(p.downloaded / 1048576).toFixed(1)} MB`));
-                  setState("done");
-                } catch (e) {
-                  setErr(errText(t, e));
-                  setState("idle");
-                }
-              }}
-            >
-              {state === "downloading" ? t("updates.downloading", { pct }) : t("updates.install")}
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

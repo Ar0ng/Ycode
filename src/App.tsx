@@ -1,9 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { X } from "lucide-react";
-import { useStore } from "./lib/store";
-import { translate, useT, type Key } from "./lib/i18n";
-import { displayVersion } from "./lib/format";
-import { api } from "./lib/api";
+import { displayName, useStore } from "./lib/store";
+import { pickGreeting } from "./lib/greeting";
+import { useT, type Key } from "./lib/i18n";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import { MessageList, ErrorBox } from "./components/MessageList";
@@ -46,13 +45,20 @@ function Notices() {
 function Welcome() {
   const t = useT();
   const mode = useStore((s) => s.settings?.mode ?? "office");
+  const lang = useStore((s) => s.lang);
+  const name = useStore((s) => displayName(s));
+  const workspace = useStore((s) => s.settings?.workspace ?? null);
+  const draftId = useStore((s) => s.draftId);
+  // One random pick per new chat (draftId), so it doesn't change while typing.
+  const roll = useMemo(() => Math.random(), [draftId]);
+  const greeting = useMemo(() => pickGreeting({ lang, name, workspace, now: new Date(), random: roll }), [lang, name, workspace, roll]);
   return (
     <div className="mb-8 text-center select-none">
       <div className="mb-3 flex items-center justify-center gap-3">
         <Logo size={44} />
         <span className="text-[34px] font-semibold tracking-tight">Ycode</span>
       </div>
-      <div className="text-[17px] text-fg">{t("welcome.title")}</div>
+      <div className="text-[17px] text-fg">{greeting}</div>
       <div className="mt-1.5 text-[13px] text-faint">{mode === "coding" ? t("welcome.coding") : t("welcome.office")}</div>
     </div>
   );
@@ -71,7 +77,6 @@ function ChatArea() {
   if (isNew) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <TopBar isNew />
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 pb-[10vh]">
           <Welcome />
           <Composer centered />
@@ -112,24 +117,6 @@ export default function App() {
     init();
   }, [init]);
 
-  // Non-blocking update check shortly after start; failures are silent (offline is fine).
-  useEffect(() => {
-    if (!ready) return;
-    const s = useStore.getState().settings;
-    if (!s?.check_updates_on_start || !s.update_repo) return;
-    const id = setTimeout(() => {
-      api
-        .checkUpdate()
-        .then((u) => {
-          if (u.available) {
-            const st = useStore.getState();
-            st.addNotice("update", translate(st.lang, "notice.updateAvailable", { version: displayVersion(u.version) }));
-          }
-        })
-        .catch(() => {});
-    }, 4000);
-    return () => clearTimeout(id);
-  }, [ready]);
 
   if (bootError) return <div className="p-8 text-[13px] text-danger">Ycode failed to start: {bootError}</div>;
   if (!ready) return <div className="h-full bg-bg" />;

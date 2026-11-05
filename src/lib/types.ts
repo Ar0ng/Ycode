@@ -124,6 +124,9 @@ export interface Settings {
   recent_workspaces: string[];
   disabled_skills: string[];
   update_repo: string;
+  auto_update_repo: boolean;
+  profile_name: string;
+  auto_approve_edits: boolean;
   check_updates_on_start: boolean;
   claude_fallbacks: boolean;
   sidebar_collapsed: boolean;
@@ -162,6 +165,8 @@ export interface Bootstrap {
   groups: ConversationGroup[];
   skills: SkillMeta[];
   recovery_notice?: string | null;
+  os_user: string;
+  avatar?: string | null;
   schema_version: number;
 }
 

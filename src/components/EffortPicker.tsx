@@ -35,14 +35,13 @@ export function EffortPicker({ caps, value, onChange }: { caps?: ModelCaps; valu
         type="button"
         onClick={() => setOpen((o) => !o)}
         title={`${t("effort.label")} · ${t("effort.active", { level: t(`effort.${value}`) })}`}
-        className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg"
+        className="flex items-center gap-0.5 rounded-md px-1.5 py-1 text-[13px] text-muted hover:bg-hover hover:text-fg"
       >
-        <Brain size={13} />
-        <span className="font-medium text-fg">{t(`effort.${value}`)}</span>
+        <span>{t(`effort.${value}`)}</span>
         <ChevronDown size={13} />
       </button>
       {open && (
-        <Menu up className="left-0 w-72">
+        <Menu up className="right-0 w-72">
           <div className="px-2 pt-1 pb-1.5">
             <div className="text-[11px] font-medium tracking-wide text-faint uppercase">
               {t("effort.label")} · {caps.display_name}

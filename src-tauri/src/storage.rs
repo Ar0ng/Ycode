@@ -102,7 +102,14 @@ pub struct Settings {
     pub disabled_skills: Vec<String>,
     /// GitHub "owner/repo" used by the updater; empty = updater not configured.
     pub update_repo: String,
+    /// On: updates always come from the official Ar0ng/Ycode. Off: use `update_repo`.
+    pub auto_update_repo: bool,
     pub check_updates_on_start: bool,
+    /// Display name used in greetings; empty = the Windows user name.
+    pub profile_name: String,
+    /// Approval mode: true = file edits inside the workspace are applied without
+    /// asking ("edit within workspace"); commands and outside reads still ask.
+    pub auto_approve_edits: bool,
     pub claude_fallbacks: bool,
     pub sidebar_collapsed: bool,
     /// Max agent steps (model calls) per user message.
@@ -133,7 +140,10 @@ impl Default for Settings {
             recent_workspaces: vec![],
             disabled_skills: vec![],
             update_repo: DEFAULT_UPDATE_REPO.into(),
+            auto_update_repo: true,
             check_updates_on_start: true,
+            profile_name: String::new(),
+            auto_approve_edits: false,
             claude_fallbacks: true,
             sidebar_collapsed: false,
             max_steps: 40,
@@ -152,6 +162,12 @@ impl Settings {
     pub fn normalize(&mut self) {
         let repo = self.update_repo.trim().trim_matches('/');
         self.update_repo = if repo.is_empty() { DEFAULT_UPDATE_REPO.to_string() } else { repo.to_string() };
+        self.profile_name = self.profile_name.trim().chars().filter(|c| !c.is_control()).take(32).collect();
+    }
+
+    /// Repository the updater actually uses.
+    pub fn effective_update_repo(&self) -> &str {
+        if self.auto_update_repo { DEFAULT_UPDATE_REPO } else { &self.update_repo }
     }
 }
 
@@ -221,6 +237,21 @@ impl Db {
         };
         s.normalize();
         s
+    }
+
+    /// Profile picture as a small `data:image/...;base64,` URL (stored apart from
+    /// settings so the settings document stays small).
+    pub fn load_avatar(&self) -> Option<String> {
+        self.lock().query_row("SELECT value FROM kv WHERE key='avatar'", [], |r| r.get(0)).optional().ok().flatten()
+    }
+
+    pub fn save_avatar(&self, data_url: Option<&str>) -> AppResult<()> {
+        let c = self.lock();
+        match data_url {
+            Some(d) => c.execute("INSERT OR REPLACE INTO kv(key,value) VALUES('avatar',?1)", params![d])?,
+            None => c.execute("DELETE FROM kv WHERE key='avatar'", [])?,
+        };
+        Ok(())
     }
 
     pub fn save_settings(&self, s: &Settings) -> AppResult<()> {
@@ -479,6 +510,26 @@ mod tests {
             s.normalize();
             assert_eq!(s.update_repo, want, "input {input:?}");
         }
+    }
+
+    #[test]
+    fn auto_update_repo_and_profile() {
+        let db = Db::open_in_memory().unwrap();
+        // Older settings without the new fields get the defaults.
+        db.lock().execute("INSERT INTO kv(key,value) VALUES('settings','{\"update_repo\":\"me/fork\"}')", []).unwrap();
+        let mut s = db.load_settings();
+        assert!(s.auto_update_repo);
+        assert_eq!(s.effective_update_repo(), DEFAULT_UPDATE_REPO, "auto on ignores the custom repo");
+        s.auto_update_repo = false;
+        assert_eq!(s.effective_update_repo(), "me/fork");
+        s.profile_name = "  Ar0ng\u{7}  ".into();
+        s.normalize();
+        assert_eq!(s.profile_name, "Ar0ng");
+        assert_eq!(db.load_avatar(), None);
+        db.save_avatar(Some("data:image/png;base64,AAAA")).unwrap();
+        assert_eq!(db.load_avatar().as_deref(), Some("data:image/png;base64,AAAA"));
+        db.save_avatar(None).unwrap();
+        assert_eq!(db.load_avatar(), None);
     }
 
     #[test]

@@ -18,6 +18,7 @@ import type {
   Settings,
   SkillMeta,
   ToolStatus,
+  UpdateInfo,
   Usage,
 } from "./types";
 
@@ -32,8 +33,19 @@ interface ToolState {
   approval?: ApprovalPrompt;
 }
 
+export interface UpdateState {
+  info: UpdateInfo | null;
+  status: "idle" | "checking" | "downloading" | "done" | "error";
+  progress: string;
+  error: string | null;
+}
+
 interface State {
   ready: boolean;
+  /** Windows user name (fallback for the profile name). */
+  osUser: string;
+  avatar: string | null;
+  update: UpdateState;
   bootError: string | null;
   version: string;
   lang: Lang;
@@ -83,6 +95,15 @@ interface Actions {
   setModels(m: ModelCaps[]): void;
   setProviders(p: ProviderInfo[]): void;
   setSkills(s: SkillMeta[]): void;
+  setAvatar(dataUrl: string | null): Promise<void>;
+  /** Check GitHub for a newer release; `silent` hides errors (startup check). */
+  checkUpdate(silent?: boolean): Promise<void>;
+  installUpdate(): Promise<void>;
+}
+
+/** Name shown in greetings: profile name, else the Windows user name. */
+export function displayName(s: { settings: Settings | null; osUser: string }) {
+  return (s.settings?.profile_name || "").trim() || s.osUser;
 }
 
 const uuid = () => crypto.randomUUID();
@@ -187,6 +208,9 @@ export const useStore = create<State & Actions>((set, get) => {
 
   return {
     ready: false,
+    osUser: "",
+    avatar: null,
+    update: { info: null, status: "idle", progress: "", error: null },
     bootError: null,
     version: "",
     lang: detectLang(),
@@ -224,8 +248,12 @@ export const useStore = create<State & Actions>((set, get) => {
           conversations: b.conversations,
           groups: b.groups,
           skills: b.skills,
+          osUser: b.os_user ?? "",
+          avatar: b.avatar ?? null,
         });
         if (b.recovery_notice) get().addNotice("recovered", b.recovery_notice);
+        // Non-blocking update check shortly after start; offline/failed checks are silent.
+        if (settings.check_updates_on_start) setTimeout(() => get().checkUpdate(true), 4000);
       } catch (e) {
         set({ bootError: (e as AppError)?.message ?? String(e) });
       }
@@ -385,6 +413,37 @@ export const useStore = create<State & Actions>((set, get) => {
     },
     setSkills(skills) {
       set({ skills });
+    },
+
+    async setAvatar(dataUrl) {
+      await api.setAvatar(dataUrl);
+      set({ avatar: dataUrl });
+    },
+
+    async checkUpdate(silent = false) {
+      if (get().update.status === "checking" || get().update.status === "downloading") return;
+      set((s) => ({ update: { ...s.update, status: "checking", error: null } }));
+      try {
+        const info = await api.checkUpdate();
+        set((s) => ({ update: { ...s.update, info, status: "idle" } }));
+      } catch (e) {
+        const msg = (e as AppError)?.message ?? String(e);
+        set((s) => ({ update: { ...s.update, status: silent ? "idle" : "error", error: silent ? null : msg } }));
+      }
+    },
+
+    async installUpdate() {
+      set((s) => ({ update: { ...s.update, status: "downloading", progress: "", error: null } }));
+      try {
+        await api.installUpdate((p) =>
+          set((s) => ({
+            update: { ...s.update, progress: p.total ? `${Math.round((p.downloaded / p.total) * 100)}%` : `${(p.downloaded / 1048576).toFixed(1)} MB` },
+          })),
+        );
+        set((s) => ({ update: { ...s.update, status: "done" } }));
+      } catch (e) {
+        set((s) => ({ update: { ...s.update, status: "error", error: (e as AppError)?.message ?? String(e) } }));
+      }
     },
   };
 });

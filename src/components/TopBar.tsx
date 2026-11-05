@@ -29,7 +29,7 @@ function ModeSwitch() {
   );
 }
 
-export function WorkspacePicker() {
+export function WorkspacePicker({ plain = false }: { plain?: boolean }) {
   const t = useT();
   const workspace = useStore((s) => s.settings?.workspace ?? null);
   const recent = useStore((s) => s.settings?.recent_workspaces);
@@ -48,14 +48,18 @@ export function WorkspacePicker() {
         type="button"
         onClick={() => setOpen((o) => !o)}
         title={workspace ?? t("workspace.none")}
-        className={`flex max-w-[260px] items-center gap-1.5 rounded-md border px-2.5 py-1 text-[13px] hover:bg-hover ${workspace ? "border-line text-fg" : "border-dashed border-line-strong text-muted"}`}
+        className={
+          plain
+            ? `flex max-w-[300px] items-center gap-1.5 rounded-md px-2 py-1 text-[13px] font-semibold hover:bg-hover ${workspace ? "text-fg" : "text-muted"}`
+            : `flex max-w-[260px] items-center gap-1.5 rounded-md border px-2.5 py-1 text-[13px] hover:bg-hover ${workspace ? "border-line text-fg" : "border-dashed border-line-strong text-muted"}`
+        }
       >
         {workspace ? <FolderOpen size={14} /> : <Folder size={14} />}
         <span className="truncate">{workspace ? folderName(workspace) : t("workspace.choose")}</span>
         <ChevronDown size={13} className="shrink-0 text-faint" />
       </button>
       {open && (
-        <Menu className="right-0 w-80">
+        <Menu className={`${plain ? "left-0" : "right-0"} w-80`}>
           <div className="px-2 pt-1 pb-1.5 text-[11px] font-medium tracking-wide text-faint uppercase">{t("workspace.label")}</div>
           {workspace && <div className="mb-1 px-2 font-mono text-[11px] break-all text-muted">{workspace}</div>}
           <MenuItem onClick={choose}>

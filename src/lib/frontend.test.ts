@@ -6,6 +6,7 @@ import { fmt, hitRate } from "../components/UsageLine";
 import type { ModelCaps } from "./types";
 import { isHidden, isLegacy } from "./models";
 import { displayVersion } from "./format";
+import { pickGreeting, timeOfDay } from "./greeting";
 
 const caps = (over: Partial<ModelCaps>): ModelCaps => ({
   provider: "deepseek",
@@ -86,6 +87,20 @@ describe("version display", () => {
     expect(displayVersion("v0.1.4")).toBe("V0.1.4");
     expect(displayVersion("V1.2.0")).toBe("V1.2.0");
     expect(displayVersion(null)).toBe("");
+  });
+});
+
+describe("greeting", () => {
+  const at = (h: number) => new Date(2026, 10, 6, h, 0, 0);
+  it("buckets the time of day", () => {
+    expect([6, 12, 15, 20, 2].map(timeOfDay)).toEqual(["morning", "noon", "afternoon", "evening", "night"]);
+  });
+  it("picks only applicable variants", () => {
+    const all = new Set([0, 0.4, 0.7, 0.99].map((r) => pickGreeting({ lang: "zh-CN", name: "Ar0ng", workspace: "E:/proj/demo-app", now: at(9), random: r })));
+    expect(all).toEqual(new Set(["今天想做点什么？", "早上好，Ar0ng", "我们应该在 demo-app 中做些什么？"]));
+    // No name and no folder: only the generic question.
+    expect(pickGreeting({ lang: "zh-CN", name: " ", workspace: null, now: at(20), random: 0.99 })).toBe("今天想做点什么？");
+    expect(pickGreeting({ lang: "en-US", name: "Ar0ng", workspace: null, now: at(20), random: 0.99 })).toBe("Good evening, Ar0ng");
   });
 });
 

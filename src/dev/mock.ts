@@ -10,7 +10,9 @@ const MOCK_IMAGE =
   btoa('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect x="32" y="32" width="448" height="448" rx="96" fill="#1d1d1f"/><path d="M150 262 L226 338 L364 182" fill="none" stroke="#34c759" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/></svg>');
 const boot: Bootstrap = {
   version: "0.1.0-dev",
-  schema_version: 1,
+  schema_version: 2,
+  os_user: "Ar0ng",
+  avatar: null,
   settings: {
     language: null,
     theme: "system",
@@ -24,6 +26,9 @@ const boot: Bootstrap = {
     recent_workspaces: ["C:\\Users\\dev\\projects\\demo-app", "D:\\work\\website", "D:\\notes"],
     disabled_skills: [],
     update_repo: "Ar0ng/Ycode",
+    auto_update_repo: true,
+    profile_name: "",
+    auto_approve_edits: false,
     check_updates_on_start: false,
     claude_fallbacks: true,
     sidebar_collapsed: false,
@@ -132,6 +137,11 @@ export function installMock() {
         boot.groups.push(g);
         return g;
       }
+      case "check_update":
+        return { available: true, current_version: "0.1.5", version: "0.2.0", notes: "New profile, greeting and update button.", date: null };
+      case "set_avatar":
+        boot.avatar = (args as { dataUrl: string | null }).dataUrl;
+        return null;
       case "list_skills":
         return boot.skills;
       case "read_image":

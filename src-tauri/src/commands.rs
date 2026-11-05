@@ -42,6 +42,9 @@ pub struct Bootstrap {
     skills: Vec<SkillMeta>,
     recovery_notice: Option<String>,
     schema_version: i64,
+    /// Windows user name, used when no profile name is set.
+    os_user: String,
+    avatar: Option<String>,
 }
 
 fn providers_info(st: &AppState, s: &Settings) -> Vec<ProviderInfo> {
@@ -70,12 +73,14 @@ pub fn bootstrap(app: tauri::AppHandle, st: St) -> AppResult<Bootstrap> {
         skills: st.skills_snapshot().list().to_vec(),
         recovery_notice: lock(&st.db.recovery_notice).take(),
         schema_version: st.db.schema_version(),
+        os_user: std::env::var("USERNAME").unwrap_or_default(),
+        avatar: st.db.load_avatar(),
         settings: s,
     })
 }
 
-const PATCHABLE: [&str; 15] =
-    ["hide_legacy_models", "hidden_models", "image_generation", "image_model", "language", "theme", "provider", "mode", "models", "efforts", "update_repo", "check_updates_on_start", "claude_fallbacks", "sidebar_collapsed", "max_steps"];
+const PATCHABLE: [&str; 18] =
+    ["auto_approve_edits", "auto_update_repo", "profile_name", "hide_legacy_models", "hidden_models", "image_generation", "image_model", "language", "theme", "provider", "mode", "models", "efforts", "update_repo", "check_updates_on_start", "claude_fallbacks", "sidebar_collapsed", "max_steps"];
 
 #[tauri::command]
 pub fn update_settings(st: St, patch: Value) -> AppResult<Settings> {
@@ -361,10 +366,7 @@ pub fn validate_skill(path: String) -> AppResult<SkillMeta> {
 
 #[tauri::command]
 pub async fn check_update(app: tauri::AppHandle, st: St<'_>) -> AppResult<crate::updater::UpdateInfo> {
-    let repo = st.settings().update_repo;
-    if repo.trim().is_empty() {
-        return Err(AppError::Update("update repository is not configured".into()));
-    }
+    let repo = st.settings().effective_update_repo().to_string();
     crate::updater::check(&app, &repo).await
 }
 
@@ -376,11 +378,36 @@ pub struct Progress {
 
 #[tauri::command]
 pub async fn install_update(app: tauri::AppHandle, st: St<'_>, on_progress: Channel<Progress>) -> AppResult<()> {
-    let repo = st.settings().update_repo;
+    let repo = st.settings().effective_update_repo().to_string();
     crate::updater::install(&app, &repo, |downloaded, total| {
         let _ = on_progress.send(Progress { downloaded, total });
     })
     .await
+}
+
+/// Set (or clear with `None`) the profile picture. The UI sends an already
+/// resized square PNG/JPEG/WebP data URL.
+#[tauri::command]
+pub fn set_avatar(st: St, data_url: Option<String>) -> AppResult<()> {
+    if let Some(d) = &data_url {
+        crate::commands::validate_avatar(d)?;
+    }
+    st.db.save_avatar(data_url.as_deref())
+}
+
+pub fn validate_avatar(d: &str) -> AppResult<()> {
+    const MAX: usize = 1_500_000;
+    let ok_prefix = ["data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,"].iter().any(|p| d.starts_with(p));
+    if !ok_prefix {
+        return Err(AppError::Invalid("avatar must be a PNG, JPEG or WebP image".into()));
+    }
+    if d.len() > MAX {
+        return Err(AppError::Invalid("avatar image is too large".into()));
+    }
+    let b64 = d.split_once(',').map(|x| x.1).unwrap_or("");
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.decode(b64).map_err(|_| AppError::Invalid("avatar image data is invalid".into()))?;
+    Ok(())
 }
 
 /// Generated image as a data: URL for display.
@@ -409,6 +436,14 @@ pub fn open_data_folder(st: St) -> AppResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn avatar_validation() {
+        assert!(validate_avatar("data:image/png;base64,iVBORw0KGgo=").is_ok());
+        assert!(validate_avatar("data:image/svg+xml;base64,PHN2Zz4=").is_err(), "no SVG (scripts)");
+        assert!(validate_avatar("data:image/png;base64,***").is_err());
+        assert!(validate_avatar(&format!("data:image/png;base64,{}", "A".repeat(1_600_000))).is_err());
+    }
 
     #[test]
     fn attachment_classification() {

@@ -1,11 +1,12 @@
 import { useRef, useState } from "react";
-import { ChevronRight, FolderInput, FolderPlus, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings as SettingsIcon, SquarePen, Trash2 } from "lucide-react";
+import { ChevronRight, FolderInput, FolderPlus, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, SquarePen, Trash2 } from "lucide-react";
 import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
 import type { ConversationGroup, ConversationSummary } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Logo } from "./Logo";
 import { Menu, MenuItem, useDropdown } from "./Popover";
+import { UserBar } from "./UserBar";
 
 function NameInput({ initial, onDone }: { initial: string; onDone: (name: string | null) => void }) {
   const t = useT();
@@ -170,10 +171,9 @@ export function Sidebar() {
   const t = useT();
   const conversations = useStore((s) => s.conversations);
   const groups = useStore((s) => s.groups);
-  const view = useStore((s) => s.view);
   const newChatActive = useStore((s) => s.currentId === null && s.draftGroupId === null && s.view === "chat");
   const collapsed = useStore((s) => s.settings?.sidebar_collapsed ?? false);
-  const { newChat, deleteChat, deleteGroup, createGroup, setView, patchSettings } = useStore.getState();
+  const { newChat, deleteChat, deleteGroup, createGroup, patchSettings } = useStore.getState();
   const [confirmChat, setConfirmChat] = useState<string | null>(null);
   const [confirmGroup, setConfirmGroup] = useState<ConversationGroup | null>(null);
   const [creating, setCreating] = useState(false);
@@ -189,9 +189,7 @@ export function Sidebar() {
           <SquarePen size={17} />
         </button>
         <div className="flex-1" />
-        <button type="button" title={t("sidebar.settings")} onClick={() => setView("settings")} className="rounded-md p-2 text-muted hover:bg-hover hover:text-fg">
-          <SettingsIcon size={17} />
-        </button>
+        <UserBar compact />
       </aside>
     );
   }
@@ -241,12 +239,7 @@ export function Sidebar() {
           <ChatRow key={c.id} c={c} onDelete={setConfirmChat} />
         ))}
       </nav>
-      <div className="border-t border-line p-2">
-        <button type="button" onClick={() => setView("settings")} className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] hover:bg-hover ${view === "settings" ? "bg-hover" : ""}`}>
-          <SettingsIcon size={15} className="text-muted" />
-          {t("sidebar.settings")}
-        </button>
-      </div>
+      <UserBar />
       {confirmChat && (
         <ConfirmDialog
           message={t("confirm.deleteChat")}

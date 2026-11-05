@@ -57,6 +57,7 @@ pub fn run() {
             commands::install_update,
             commands::open_data_folder,
             commands::read_image,
+            commands::set_avatar,
             commands::save_image_as,
             commands::list_groups,
             commands::create_group,
