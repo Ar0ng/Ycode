@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
 import { useStore } from "./lib/store";
-import { useT, type Key } from "./lib/i18n";
+import { translate, useT, type Key } from "./lib/i18n";
+import { displayVersion } from "./lib/format";
 import { api } from "./lib/api";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
@@ -120,7 +121,10 @@ export default function App() {
       api
         .checkUpdate()
         .then((u) => {
-          if (u.available) useStore.getState().addNotice("update", `Ycode ${u.version} — Settings › Updates`);
+          if (u.available) {
+            const st = useStore.getState();
+            st.addNotice("update", translate(st.lang, "notice.updateAvailable", { version: displayVersion(u.version) }));
+          }
         })
         .catch(() => {});
     }, 4000);

@@ -1,6 +1,6 @@
 # Ycode — Developer handoff
 
-Last updated: **2026-11-05**, at commit `1e0575b` (v0.1.3) plus this handoff commit.
+Last updated: **2026-11-05** (v0.1.4).
 Read this file first, then `README.md`, then the doc that matches your task (table at the end).
 
 ## 1. What Ycode is
@@ -20,7 +20,7 @@ Credential Manager.
 |---|---|
 | Repository | https://github.com/Ar0ng/Ycode (branch `main`) |
 | Local path (original machine) | `I:\ClaudeData\Ycode` |
-| Current version | 0.1.3 (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` — keep all three equal) |
+| Current version | 0.1.4 (shown in the app as "V0.1.4") (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` — keep all three equal) |
 | App identifier / data dir | `com.ycode.desktop` → `%APPDATA%\com.ycode.desktop\` (`ycode.db`, `images\`, `skills\`, `logs\`) |
 | DB schema version | 2 (`PRAGMA user_version`) |
 | Code size | Rust ≈6.8k lines (incl. tests) · TS/TSX ≈3.4k lines |
@@ -166,7 +166,7 @@ $env:RUSTUP_HOME='D:\DevTools\rust\rustup'; $env:CARGO_HOME='D:\DevTools\rust\ca
 | Signed release build | `powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1` (needs `%USERPROFILE%\.ycode-signing\`), or set `TAURI_SIGNING_PRIVATE_KEY*` and run `npm run tauri build` |
 | Unsigned local installer | `npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'` |
 | Installer smoke test | `powershell -ExecutionPolicy Bypass -File scripts\install-test.ps1 -Setup <setup.exe> -Out result.json` |
-| Release | bump the 3 version fields → commit → `git tag vX.Y.Z` → `git push origin main --tags` |
+| Release | bump the 3 version fields → `cd src-tauri && cargo update -p ycode` (refreshes Cargo.lock; CI uses `--locked`) → commit → `git tag vX.Y.Z` → `git push origin main --tags` |
 
 Output: `src-tauri/target/release/bundle/nsis/Ycode_<ver>_x64-setup.exe` (+ `.sig`).
 

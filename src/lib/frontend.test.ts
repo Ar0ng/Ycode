@@ -5,6 +5,7 @@ import { dictionaries, translate } from "./i18n";
 import { fmt, hitRate } from "../components/UsageLine";
 import type { ModelCaps } from "./types";
 import { isHidden, isLegacy } from "./models";
+import { displayVersion } from "./format";
 
 const caps = (over: Partial<ModelCaps>): ModelCaps => ({
   provider: "deepseek",
@@ -76,6 +77,15 @@ describe("legacy models", () => {
     expect(isHidden(m("openai", "gpt-6-luna"), s)).toBe(true);
     expect(isHidden(m("openai", "gpt-5.5-mini"), s)).toBe(false);
     expect(isHidden(m("openai", "gpt-5.5-mini"), { ...s, hide_legacy_models: true })).toBe(true);
+  });
+});
+
+describe("version display", () => {
+  it("shows versions with a capital V", () => {
+    expect(displayVersion("0.1.4")).toBe("V0.1.4");
+    expect(displayVersion("v0.1.4")).toBe("V0.1.4");
+    expect(displayVersion("V1.2.0")).toBe("V1.2.0");
+    expect(displayVersion(null)).toBe("");
   });
 });
 

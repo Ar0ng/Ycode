@@ -37,8 +37,10 @@ protection).
 
 ## Cutting a release
 
-1. Bump the version in **both** `package.json` and `src-tauri/tauri.conf.json`
-   (and `src-tauri/Cargo.toml` to keep them aligned).
+1. Bump the version in `package.json`, `src-tauri/tauri.conf.json` and
+   `src-tauri/Cargo.toml` (plain semver, e.g. `0.1.4`; the app displays it as `V0.1.4`),
+   then run `cargo update -p ycode` in `src-tauri` so `Cargo.lock` matches — CI and the
+   release build use `--locked` and fail otherwise.
 2. Commit, then tag and push:
    ```bash
    git tag v0.2.0

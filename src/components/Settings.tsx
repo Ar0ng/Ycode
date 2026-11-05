@@ -9,6 +9,7 @@ import { api } from "../lib/api";
 import type { AppError, ProviderId, UpdateInfo } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { isLegacy, modelKey } from "../lib/models";
+import { displayVersion } from "../lib/format";
 
 // Keep in sync with images::KNOWN_MODELS (src-tauri/src/images.rs).
 const IMAGE_MODELS = ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"];
@@ -351,12 +352,12 @@ function Updates() {
       {info && !info.available && (
         <div className="mt-3 flex items-center gap-1.5 text-xs text-ok">
           <Check size={13} />
-          {t("updates.none", { version: info.current_version })}
+          {t("updates.none", { version: displayVersion(info.current_version) })}
         </div>
       )}
       {info?.available && (
         <div className="mt-3 rounded-lg border border-line p-3">
-          <div className="mb-1 text-[13px] font-medium">{t("updates.available", { version: info.version ?? "" })}</div>
+          <div className="mb-1 text-[13px] font-medium">{t("updates.available", { version: displayVersion(info.version) })}</div>
           {info.notes && <pre className="mb-2 max-h-48 overflow-auto font-sans text-xs whitespace-pre-wrap text-muted">{info.notes}</pre>}
           {state === "done" ? (
             <div className="flex items-center gap-3 text-xs">
@@ -398,7 +399,7 @@ function About() {
   return (
     <div className="text-[13px]">
       <p className="mb-2 font-medium">Ycode</p>
-      <p className="mb-4 text-muted">{t("about.version", { v: version })}</p>
+      <p className="mb-4 text-muted">{t("about.version", { v: displayVersion(version) })}</p>
       <p className="mb-4 text-muted">{t("about.privacy")}</p>
       <button
         type="button"

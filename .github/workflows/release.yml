@@ -113,7 +113,7 @@ jobs:
           $url = "https://github.com/$repo/releases/download/$tag/$name"
           $manifest = [ordered]@{
             version   = $ver
-            notes     = "Ycode $ver"
+            notes     = "Ycode V$ver"
             pub_date  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
             platforms = [ordered]@{
               "windows-x86_64"      = [ordered]@{ signature = $sig; url = $url }
@@ -126,7 +126,7 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag $exe "$exe.sig" latest.json --repo $repo --clobber
           } else {
-            gh release create $tag $exe "$exe.sig" latest.json --repo $repo --title "Ycode $tag" --notes $notes --verify-tag
+            gh release create $tag $exe "$exe.sig" latest.json --repo $repo --title "Ycode V$ver" --notes $notes --verify-tag
           }
           if ($LASTEXITCODE -ne 0) { Write-Output "::error title=Publish failed::gh release exited with $LASTEXITCODE"; exit 1 }
           Write-Output "Published $tag with $name, $name.sig and latest.json"
