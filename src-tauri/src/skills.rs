@@ -439,6 +439,14 @@ mod tests {
     }
 
     #[test]
+    fn bundled_example_skill_is_valid() {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/skills/release-notes");
+        let m = validate_dir(&p).unwrap();
+        assert_eq!(m.name, "release-notes");
+        assert!(m.warnings.is_empty(), "{:?}", m.warnings);
+    }
+
+    #[test]
     fn rejects_invalid_skills() {
         let src = tmp();
         let bad_name = make_skill(&src, "x", "name: Bad_Name\ndescription: d");

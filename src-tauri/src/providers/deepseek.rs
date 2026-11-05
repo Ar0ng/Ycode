@@ -22,11 +22,10 @@ pub fn build(req: &TurnRequest) -> BuiltRequest {
                 });
                 // reasoning_content must be replayed for every earlier turn when tools are
                 // present; it is model-family data, so any DeepSeek turn qualifies.
-                if let Some(r) = m.raw.as_ref().filter(|r| r.provider == ProviderId::Deepseek) {
-                    if let Some(rc) = r.data.get("reasoning_content").and_then(|s| s.as_str()) {
+                if let Some(r) = m.raw.as_ref().filter(|r| r.provider == ProviderId::Deepseek)
+                    && let Some(rc) = r.data.get("reasoning_content").and_then(|s| s.as_str()) {
                         a["reasoning_content"] = json!(rc);
                     }
-                }
                 if !m.tool_calls.is_empty() {
                     a["tool_calls"] = Value::Array(
                         m.tool_calls
@@ -150,18 +149,16 @@ impl Decoder for DeepSeekDecoder {
         }
         for ch in v.get("choices").and_then(|c| c.as_array()).into_iter().flatten() {
             let d = &ch["delta"];
-            if let Some(r) = d.get("reasoning_content").and_then(|s| s.as_str()) {
-                if !r.is_empty() {
+            if let Some(r) = d.get("reasoning_content").and_then(|s| s.as_str())
+                && !r.is_empty() {
                     self.reasoning.push_str(r);
                     out.push(StreamEvent::Reasoning { delta: r.into() });
                 }
-            }
-            if let Some(t) = d.get("content").and_then(|s| s.as_str()) {
-                if !t.is_empty() {
+            if let Some(t) = d.get("content").and_then(|s| s.as_str())
+                && !t.is_empty() {
                     self.text.push_str(t);
                     out.push(StreamEvent::Text { delta: t.into() });
                 }
-            }
             for tc in d.get("tool_calls").and_then(|c| c.as_array()).into_iter().flatten() {
                 let idx = tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
                 while self.calls.len() <= idx {
@@ -171,12 +168,11 @@ impl Decoder for DeepSeekDecoder {
                 if let Some(id) = tc.get("id").and_then(|s| s.as_str()) {
                     pc.id = id.into();
                 }
-                if let Some(n) = tc.pointer("/function/name").and_then(|s| s.as_str()) {
-                    if pc.name.is_empty() {
+                if let Some(n) = tc.pointer("/function/name").and_then(|s| s.as_str())
+                    && pc.name.is_empty() {
                         pc.name = n.into();
                         out.push(StreamEvent::ToolStart { id: pc.id.clone(), name: pc.name.clone() });
                     }
-                }
                 if let Some(a) = tc.pointer("/function/arguments").and_then(|s| s.as_str()) {
                     pc.args.push_str(a);
                 }

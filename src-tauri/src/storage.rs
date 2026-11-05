@@ -338,8 +338,7 @@ mod tests {
     fn settings_roundtrip_and_defaults_for_missing_fields() {
         let db = Db::open_in_memory().unwrap();
         assert_eq!(db.load_settings().theme, "system");
-        let mut s = Settings::default();
-        s.language = Some("zh-CN".into());
+        let s = Settings { language: Some("zh-CN".into()), ..Default::default() };
         db.save_settings(&s).unwrap();
         assert_eq!(db.load_settings().language.as_deref(), Some("zh-CN"));
         // Older settings JSON with fewer fields still loads (forward migration).

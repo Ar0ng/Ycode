@@ -1,0 +1,71 @@
+name: Release
+
+# Push a tag like v0.2.0 (matching "version" in src-tauri/tauri.conf.json and
+# package.json) to build, test, sign and publish a stable GitHub Release with the
+# NSIS installer and the updater manifest (latest.json).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check tag matches app version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          if ($conf.version -ne $tag -or $pkg.version -ne $tag) {
+            throw "Tag v$tag does not match tauri.conf.json ($($conf.version)) / package.json ($($pkg.version))"
+          }
+
+      - name: Check signing secrets
+        shell: pwsh
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if (-not $env:KEY) { throw "Secret TAURI_SIGNING_PRIVATE_KEY is not set (see docs/RELEASING.md)" }
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      - name: Build, sign and publish
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Ycode ${{ github.ref_name }}"
+          releaseBody: "See the assets below to download and install Ycode for Windows (x64). Existing installs update in-app."
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: --bundles nsis

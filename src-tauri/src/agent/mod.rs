@@ -17,6 +17,7 @@ use tokio::sync::oneshot;
 
 pub type Emit = Arc<dyn Fn(AgentEvent) + Send + Sync>;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
@@ -406,8 +407,8 @@ async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall,
         }
     };
     let diff = prepared.approval.as_ref().and_then(|a| a.diff.clone());
-    if let Some(req) = prepared.approval {
-        if !session_allows(state, conv, &req) {
+    if let Some(req) = prepared.approval
+        && !session_allows(state, conv, &req) {
             let request_id = uuid::Uuid::new_v4().to_string();
             let (tx, rx) = oneshot::channel();
             lock(&state.approvals).insert(request_id.clone(), tx);
@@ -429,7 +430,6 @@ async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall,
                 Decision::Allow => {}
             }
         }
-    }
     emit(tool_status(mid, call, "running", None));
     match tools::execute(prepared.action, cancel).await {
         Ok(out) => {

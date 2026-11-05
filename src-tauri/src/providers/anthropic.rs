@@ -48,12 +48,11 @@ pub fn build(req: &TurnRequest) -> BuiltRequest {
                 messages.push(json!({ "role": "user", "content": blocks }));
             }
             Role::Control => {
-                if let Some(Control::Effort { provider: ProviderId::Anthropic, model, effort, in_band: true }) = &m.control {
-                    if model == req.model {
+                if let Some(Control::Effort { provider: ProviderId::Anthropic, model, effort, in_band: true }) = &m.control
+                    && model == req.model {
                         uses_effort_msg = true;
                         messages.push(json!({ "role": "system", "content": [], "output_config": { "effort": effort.as_str() } }));
                     }
-                }
             }
         }
     }
@@ -255,15 +254,14 @@ impl Decoder for AnthropicDecoder {
             }
             "content_block_stop" => {
                 let idx = v.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
-                if let Some(block) = self.blocks.get_mut(idx) {
-                    if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                if let Some(block) = self.blocks.get_mut(idx)
+                    && block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
                         let raw = std::mem::take(&mut self.partial_json[idx]);
                         // Eager input streaming: the API no longer validates input → parse
                         // defensively; invalid JSON becomes {"_raw": ...} and is rejected
                         // by the tool layer with a precise error.
                         block["input"] = if raw.is_empty() { block.get("input").cloned().unwrap_or(json!({})) } else { parse_args(&raw) };
                     }
-                }
             }
             "message_delta" => {
                 if let Some(s) = v.pointer("/delta/stop_reason").and_then(|s| s.as_str()) {

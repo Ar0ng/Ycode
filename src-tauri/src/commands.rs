@@ -59,6 +59,7 @@ fn providers_info(st: &AppState, s: &Settings) -> Vec<ProviderInfo> {
 #[tauri::command]
 pub fn bootstrap(app: tauri::AppHandle, st: St) -> AppResult<Bootstrap> {
     let s = st.settings();
+    crate::logging::info("ui bootstrap");
     Ok(Bootstrap {
         version: app.package_info().version.to_string(),
         providers: providers_info(&st, &s),
@@ -188,11 +189,10 @@ pub fn delete_conversation(st: St, id: String) -> AppResult<()> {
 
 #[tauri::command]
 pub fn send_message(st: St, params: RunParams, on_event: Channel<AgentEvent>) -> AppResult<()> {
-    if let Some(t) = &params.text {
-        if t.trim().is_empty() && params.attachments.is_empty() {
+    if let Some(t) = &params.text
+        && t.trim().is_empty() && params.attachments.is_empty() {
             return Err(AppError::Invalid("empty message".into()));
         }
-    }
     let cancel = st.register_run(&params.conversation_id)?;
     let state = st.inner().clone();
     let emit: agent::Emit = Arc::new(move |e| {
@@ -227,11 +227,10 @@ pub fn set_workspace(st: St, path: Option<String>) -> AppResult<Settings> {
                 return Err(AppError::Permission("choose a project folder, not a whole drive".into()));
             }
             let lower = real.to_string_lossy().to_lowercase();
-            if let Ok(win) = std::env::var("SystemRoot") {
-                if lower.starts_with(&win.to_lowercase()) {
+            if let Ok(win) = std::env::var("SystemRoot")
+                && lower.starts_with(&win.to_lowercase()) {
                     return Err(AppError::Permission("system folders can't be used as a workspace".into()));
                 }
-            }
             Some(real.to_string_lossy().to_string())
         }
     };

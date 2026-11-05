@@ -40,11 +40,10 @@ pub fn build(req: &TurnRequest) -> BuiltRequest {
                 }
             }
             Role::Control => {
-                if let Some(Control::Effort { provider: ProviderId::Openai, model, effort, in_band: true }) = &m.control {
-                    if model == req.model {
+                if let Some(Control::Effort { provider: ProviderId::Openai, model, effort, in_band: true }) = &m.control
+                    && model == req.model {
                         input.push(json!({ "type": "configuration_update", "reasoning": { "effort": effort.as_str() } }));
                     }
-                }
             }
         }
     }
@@ -185,14 +184,13 @@ impl Decoder for OpenAiDecoder {
                 out.push(StreamEvent::Reasoning { delta: "\n\n".into() });
             }
             "response.output_item.added" => {
-                if let Some(item) = v.get("item") {
-                    if item.get("type").and_then(|t| t.as_str()) == Some("function_call") {
+                if let Some(item) = v.get("item")
+                    && item.get("type").and_then(|t| t.as_str()) == Some("function_call") {
                         out.push(StreamEvent::ToolStart {
                             id: item.get("call_id").and_then(|s| s.as_str()).unwrap_or_default().into(),
                             name: item.get("name").and_then(|s| s.as_str()).unwrap_or_default().into(),
                         });
                     }
-                }
             }
             "response.output_item.done" => {
                 let idx = v.get("output_index").and_then(|i| i.as_u64()).unwrap_or(self.items.len() as u64);
@@ -210,11 +208,10 @@ impl Decoder for OpenAiDecoder {
                     );
                 }
                 // Prefer the authoritative final output list when present.
-                if let Some(Value::Array(output)) = v.pointer("/response/output") {
-                    if !output.is_empty() {
+                if let Some(Value::Array(output)) = v.pointer("/response/output")
+                    && !output.is_empty() {
                         self.items = output.iter().cloned().enumerate().map(|(i, it)| (i as u64, it)).collect();
                     }
-                }
                 self.done = true;
             }
             "response.failed" => {
