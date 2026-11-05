@@ -1,8 +1,12 @@
 name: Release
 
-# Push a tag like v0.2.0 (matching "version" in src-tauri/tauri.conf.json and
-# package.json) to build, test, sign and publish a stable GitHub Release with the
-# NSIS installer and the updater manifest (latest.json).
+# Push a tag like v0.2.0 (matching "version" in src-tauri/tauri.conf.json,
+# package.json and src-tauri/Cargo.toml) to test, build, sign and publish a stable
+# GitHub Release with the NSIS installer, its signature and the updater manifest
+# (latest.json).
+#
+# Failures are reported as public error annotations (readable without signing in):
+# the signing-key preflight and the tail of the build output.
 
 on:
   push:
@@ -12,6 +16,10 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: never
+  NO_COLOR: "1"
+
 jobs:
   release:
     runs-on: windows-latest
@@ -19,27 +27,46 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Check tag matches app version
-        if: startsWith(github.ref, 'refs/tags/')
+        id: version
         shell: pwsh
         run: |
           $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          $tag = "${{ github.ref_name }}".TrimStart('v')
-          if ($conf.version -ne $tag -or $pkg.version -ne $tag) {
-            throw "Tag v$tag does not match tauri.conf.json ($($conf.version)) / package.json ($($pkg.version))"
+          $ver = $conf.version
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tag = "${{ github.ref_name }}".TrimStart('v')
+            if ($ver -ne $tag -or $pkg.version -ne $tag) {
+              Write-Output "::error title=Version mismatch::Tag v$tag does not match tauri.conf.json ($ver) / package.json ($($pkg.version))"
+              exit 1
+            }
           }
-
-      - name: Check signing secrets
-        shell: pwsh
-        env:
-          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          if (-not $env:KEY) { throw "Secret TAURI_SIGNING_PRIVATE_KEY is not set (see docs/RELEASING.md)" }
+          "version=$ver" >> $env:GITHUB_OUTPUT
 
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
+
+      - name: Verify signing key (fast preflight)
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            Write-Output "::error title=Missing secret::TAURI_SIGNING_PRIVATE_KEY is not set (see docs/RELEASING.md)"
+            exit 1
+          }
+          npm ci --no-audit --no-fund | Out-Null
+          "probe" | Out-File probe.txt
+          $out = npx tauri signer sign probe.txt 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) {
+            $msg = ($out -split "`n" | Where-Object { $_ -match 'Error|error' } | Select-Object -Last 3) -join ' / '
+            Write-Output "::error title=Signing key check failed::$msg  -> Re-paste TAURI_SIGNING_PRIVATE_KEY (whole ycode.key, one line) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD (password.txt) in repo Settings > Secrets > Actions."
+            exit 1
+          }
+          Remove-Item probe.txt, probe.txt.sig -ErrorAction SilentlyContinue
+          Write-Output "Signing key and password are valid."
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -47,25 +74,59 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
-      - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test --locked
 
-      - name: Build, sign and publish
-        uses: tauri-apps/tauri-action@v1
+      - name: Build and sign installer
+        shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Ycode ${{ github.ref_name }}"
-          releaseBody: "See the assets below to download and install Ycode for Windows (x64). Existing installs update in-app."
-          releaseDraft: false
-          prerelease: false
-          uploadUpdaterJson: true
-          updaterJsonPreferNsis: true
-          args: --bundles nsis
+        run: |
+          npm run tauri build -- --bundles nsis 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) {
+            # One public annotation with the tail of the build output (secrets are masked by Actions).
+            $tail = (Get-Content build.log -Tail 60 | ForEach-Object { $_ -replace '\x1b\[[0-9;]*m', '' }) -join '%0A'
+            Write-Output "::error title=tauri build failed::$tail"
+            exit 1
+          }
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ver = "${{ steps.version.outputs.version }}"
+          $tag = "v$ver"
+          $repo = "${{ github.repository }}"
+          $dir = "src-tauri/target/release/bundle/nsis"
+          $name = "Ycode_${ver}_x64-setup.exe"
+          $exe = Join-Path $dir $name
+          if (-not (Test-Path $exe) -or -not (Test-Path "$exe.sig")) {
+            Write-Output "::error title=Missing build output::$exe or its .sig was not produced"
+            exit 1
+          }
+          $sig = (Get-Content "$exe.sig" -Raw).Trim()
+          $url = "https://github.com/$repo/releases/download/$tag/$name"
+          $manifest = [ordered]@{
+            version   = $ver
+            notes     = "Ycode $ver"
+            pub_date  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = [ordered]@{
+              "windows-x86_64"      = [ordered]@{ signature = $sig; url = $url }
+              "windows-x86_64-nsis" = [ordered]@{ signature = $sig; url = $url }
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8NoBOM latest.json
+          $notes = "Windows x64 installer: $name (per-user, no admin rights). Existing installs are offered this update in-app (Settings > Updates)."
+          gh release view $tag --repo $repo *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $exe "$exe.sig" latest.json --repo $repo --clobber
+          } else {
+            gh release create $tag $exe "$exe.sig" latest.json --repo $repo --title "Ycode $tag" --notes $notes --verify-tag
+          }
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error title=Publish failed::gh release exited with $LASTEXITCODE"; exit 1 }
+          Write-Output "Published $tag with $name, $name.sig and latest.json"

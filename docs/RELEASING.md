@@ -47,9 +47,12 @@ protection).
    git push origin main --tags
    ```
 3. `.github/workflows/release.yml` runs on `windows-latest`: checks the tag matches
-   the app version, runs type-check + frontend tests + Rust tests, builds the NSIS
-   installer, signs the updater artifacts and publishes a **non-draft, non-prerelease**
-   release containing:
+   the app version, **verifies the signing key and password in seconds** (a bad Secret
+   fails here with a clear message), runs type-check + frontend tests + Rust tests,
+   builds and signs the NSIS installer, writes `latest.json` and publishes a
+   **non-draft, non-prerelease** release with the `gh` CLI. Failures show up as public
+   error annotations on the run (the build failure annotation contains the last 60
+   lines of build output), so no sign-in is needed to diagnose them. The release contains:
    - `Ycode_<version>_x64-setup.exe` (installer)
    - `Ycode_<version>_x64-setup.exe.sig` (signature)
    - `latest.json` (updater manifest)
