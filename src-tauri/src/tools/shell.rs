@@ -10,7 +10,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::OnceLock;
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 fn rx(cell: &'static OnceLock<Vec<(Regex, &'static str)>>, src: &[(&str, &'static str)]) -> &'static Vec<(Regex, &'static str)> {
     cell.get_or_init(|| src.iter().map(|(p, why)| (Regex::new(&format!("(?i){p}")).expect("regex"), *why)).collect())
@@ -77,18 +77,10 @@ pub async fn run(command: &str, cwd: &Path, timeout_s: u64, cancel: &Cancel) -> 
     }
     let mut child = cmd.spawn().map_err(|e| AppError::Io(format!("failed to start PowerShell: {e}")))?;
     let pid = child.id();
-    let mut stdout = child.stdout.take().expect("stdout");
-    let mut stderr = child.stderr.take().expect("stderr");
-    let read_out = async {
-        let mut b = Vec::new();
-        let _ = stdout.read_to_end(&mut b).await;
-        b
-    };
-    let read_err = async {
-        let mut b = Vec::new();
-        let _ = stderr.read_to_end(&mut b).await;
-        b
-    };
+    let stdout = child.stdout.take().expect("stdout");
+    let stderr = child.stderr.take().expect("stderr");
+    let read_out = read_tail(stdout);
+    let read_err = read_tail(stderr);
     let work = async {
         let (o, e, status) = tokio::join!(read_out, read_err, child.wait());
         (o, e, status)
@@ -100,29 +92,50 @@ pub async fn run(command: &str, cwd: &Path, timeout_s: u64, cancel: &Cancel) -> 
             return Err(AppError::Cancelled);
         }
     };
-    let (o, e, status) = match result {
+    let ((o, omitted_out), (e, omitted_err), status) = match result {
         Ok(v) => v,
         Err(_) => {
             kill_tree(pid).await;
-            return Ok(format!("Command timed out after {timeout_s}s and was stopped."));
+            return Err(AppError::Io(format!("Command timed out after {timeout_s}s and was stopped.")));
         }
     };
-    let code = status.ok().and_then(|s| s.code());
+    let status = status.map_err(|e| AppError::Io(format!("failed to wait for command: {e}")))?;
+    let code = status.code();
     let mut out = String::new();
     out.push_str(&format!("exit code: {}\n", code.map(|c| c.to_string()).unwrap_or_else(|| "unknown".into())));
     let so = String::from_utf8_lossy(&o);
     let se = String::from_utf8_lossy(&e);
     if !so.trim().is_empty() {
         out.push_str("--- stdout ---\n");
+        if omitted_out > 0 { out.push_str(&format!("… [{omitted_out} earlier bytes omitted]\n")); }
         out.push_str(so.trim_end());
         out.push('\n');
     }
     if !se.trim().is_empty() {
         out.push_str("--- stderr ---\n");
+        if omitted_err > 0 { out.push_str(&format!("… [{omitted_err} earlier bytes omitted]\n")); }
         out.push_str(se.trim_end());
         out.push('\n');
     }
-    Ok(tail_cap(out))
+    let out = tail_cap(out);
+    if status.success() { Ok(out) } else { Err(AppError::Io(out)) }
+}
+
+/// Drain the pipe throughout execution while keeping only a bounded tail.
+async fn read_tail(mut reader: impl AsyncRead + Unpin) -> (Vec<u8>, usize) {
+    let mut tail = Vec::new();
+    let mut omitted = 0;
+    let mut chunk = [0u8; 8192];
+    loop {
+        let n = match reader.read(&mut chunk).await { Ok(0) | Err(_) => break, Ok(n) => n };
+        tail.extend_from_slice(&chunk[..n]);
+        if tail.len() > super::MAX_OUTPUT_CHARS {
+            let excess = tail.len() - super::MAX_OUTPUT_CHARS;
+            omitted += excess;
+            tail.drain(..excess);
+        }
+    }
+    (tail, omitted)
 }
 
 /// Keep the *end* of long command output (errors are usually there).
@@ -177,15 +190,30 @@ mod tests {
 
     #[tokio::test]
     async fn runs_and_captures_output() {
-        let out = run("Write-Output 'hello'; Write-Error 'oops'", &std::env::temp_dir(), 60, &Cancel::default()).await.unwrap();
+        let out = run("Write-Output 'hello'; Write-Error 'oops'", &std::env::temp_dir(), 60, &Cancel::default()).await.unwrap_err().to_string();
         assert!(out.contains("hello"), "{out}");
         assert!(out.contains("--- stderr ---"), "{out}");
     }
 
     #[tokio::test]
     async fn timeout_stops_command() {
-        let out = run("Start-Sleep -Seconds 30", &std::env::temp_dir(), 5, &Cancel::default()).await.unwrap();
-        assert!(out.contains("timed out"));
+        let err = run("Start-Sleep -Seconds 30", &std::env::temp_dir(), 5, &Cancel::default()).await.unwrap_err();
+        assert!(err.to_string().contains("timed out"));
+    }
+
+    #[tokio::test]
+    async fn nonzero_exit_is_an_error() {
+        let err = run("Write-Output 'failed'; exit 7", &std::env::temp_dir(), 5, &Cancel::default()).await.unwrap_err();
+        assert!(err.to_string().contains("exit code: 7"));
+        assert!(err.to_string().contains("failed"));
+    }
+
+    #[tokio::test]
+    async fn output_tail_is_bounded() {
+        let input = vec![b'x'; super::super::MAX_OUTPUT_CHARS * 4];
+        let (tail, omitted) = read_tail(input.as_slice()).await;
+        assert_eq!(tail.len(), super::super::MAX_OUTPUT_CHARS);
+        assert_eq!(omitted, super::super::MAX_OUTPUT_CHARS * 3);
     }
 
     #[tokio::test]

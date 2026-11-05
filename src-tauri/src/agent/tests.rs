@@ -132,6 +132,22 @@ fn temp_ws() -> PathBuf {
     crate::tools::sandbox::dunce_canonicalize(&d).unwrap()
 }
 
+#[test]
+fn session_approvals_are_scoped_to_workspace() {
+    let a = temp_ws();
+    let b = temp_ws();
+    let st = state(ProviderId::Deepseek, 1, Some(&a));
+    let write = ApprovalRequest { kind: ApprovalKind::WriteFile, target: "file".into(), diff: None, warning: None };
+    let command = ApprovalRequest { kind: ApprovalKind::RunCommand, target: "cargo test".into(), diff: None, warning: None };
+    remember(&st, "conv", Some(&a), &write);
+    remember(&st, "conv", Some(&a), &command);
+    assert!(session_allows(&st, "conv", Some(&a), &write));
+    assert!(session_allows(&st, "conv", Some(&a), &command));
+    assert!(!session_allows(&st, "conv", Some(&b), &write));
+    assert!(!session_allows(&st, "conv", Some(&b), &command));
+    assert!(!session_allows(&st, "other", Some(&a), &write));
+}
+
 #[tokio::test]
 async fn simple_chat_persists_and_titles() {
     let m = mock(vec![Reply::Sse(ds_text("Hello there", 0, 50))]).await;
@@ -174,6 +190,25 @@ async fn tool_loop_is_append_only() {
     assert_eq!(conv.messages[2].tool_results[0].status, "success");
     let ev = ev.lock().unwrap();
     assert!(ev.iter().any(|e| matches!(e, AgentEvent::ToolStatus { status, .. } if status == "running")));
+}
+
+#[tokio::test]
+async fn deepseek_history_stays_stable_across_separate_user_turns() {
+    let m = mock(vec![Reply::Sse(ds_text("first", 0, 100)), Reply::Sse(ds_text("second", 90, 30)), Reply::Sse(ds_text("third", 120, 20))]).await;
+    let st = state(ProviderId::Deepseek, m.port, None);
+    let (emit, _) = collector();
+    for text in ["one", "two", "three"] {
+        run(st.clone(), params(ProviderId::Deepseek, "deepseek-flash", text, Some(Effort::High), Mode::Office), Cancel::default(), emit.clone()).await;
+    }
+    let bodies = m.bodies.lock().unwrap();
+    assert_eq!(bodies.len(), 3);
+    for pair in bodies.windows(2) {
+        let earlier = pair[0]["messages"].as_array().unwrap();
+        let later = pair[1]["messages"].as_array().unwrap();
+        assert!(later.starts_with(earlier));
+        assert_eq!(pair[0]["tools"], pair[1]["tools"]);
+    }
+    assert_eq!(bodies[2]["messages"][2]["reasoning_content"], "think");
 }
 
 #[tokio::test]
@@ -231,7 +266,7 @@ async fn approve_session_applies_write() {
     });
     run(st.clone(), params(ProviderId::Deepseek, "deepseek-v4-pro", "write", None, Mode::Coding), Cancel::default(), emit).await;
     assert_eq!(std::fs::read_to_string(ws.join("out.txt")).unwrap(), "hello");
-    assert!(lock(&st.perms).get("conv-1").unwrap().writes);
+    assert!(lock(&st.perms).get("conv-1").unwrap().writes.contains(&ws));
 }
 
 #[tokio::test]

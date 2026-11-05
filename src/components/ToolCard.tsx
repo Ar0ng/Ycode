@@ -46,7 +46,7 @@ export function ToolCard({ call, result }: { call: ToolCall; result?: ToolResult
         {ICON[status]}
         <span className="font-mono text-xs text-muted">{call.name}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{summary(call)}</span>
-        <span className="text-[11px] text-faint">{t(`tool.${status}`)}</span>
+        <span className="text-[11px] text-faint">{status === "running" && (call.name === "generate_image" || call.name === "edit_image") ? t("chat.generatingImage") : t(`tool.${status}`)}</span>
         <ChevronRight size={14} className={`text-faint transition-transform ${open ? "rotate-90" : ""}`} />
       </button>
       {result?.images && result.images.length > 0 && <GeneratedImages ids={result.images} />}

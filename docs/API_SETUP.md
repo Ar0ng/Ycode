@@ -69,7 +69,19 @@ Settings → General → **Image generation (GPT Image)** (on by default) and **
 - To change an image, just ask ("make the background blue"); the model calls `edit_image`
   with the image's id. In Coding mode it can also edit PNG/JPEG/WebP files in the workspace.
 - Billing is OpenAI's image-token pricing, separate from the chat usage line in Ycode.
+- The chat model prepares a self-contained image prompt from the conversation. It is
+  instructed to preserve requested details and avoid adding exaggerated styling; the
+  image tool does not let the chat model inspect the resulting image itself.
 - A blocked prompt shows "The model declined this request" (OpenAI `moderation_blocked`).
+
+## Cache hit rates
+
+Cache reuse depends on an identical prefix and the provider's cache availability.
+Changing tools, skills, workspace, model or mode can change that prefix. New input is
+not cached by an earlier request, so the hit rate for an individual request need not
+exceed 90%. DeepSeek describes its cache as best-effort and writes cache entries
+asynchronously: https://api-docs.deepseek.com/guides/kv_cache/ . Ycode displays the
+provider-reported usage; actual cache performance needs a live measurement.
 
 ## Typical errors
 

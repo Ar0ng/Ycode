@@ -18,15 +18,15 @@ use tokio::sync::oneshot;
 pub enum Decision {
     Allow,
     /// Allow this kind of action for the rest of the conversation (same command
-    /// text for terminal commands; all workspace writes for file edits).
+    /// text for terminal commands; all writes in the approved workspace).
     AllowSession,
     Deny,
 }
 
 #[derive(Default)]
 pub struct SessionPerms {
-    pub writes: bool,
-    pub commands: HashSet<String>,
+    pub writes: HashSet<PathBuf>,
+    pub commands: HashSet<(PathBuf, String)>,
     pub outside_reads: HashSet<String>,
 }
 

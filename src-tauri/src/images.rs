@@ -161,7 +161,7 @@ pub async fn run(job: ImageJob, cancel: &Cancel) -> AppResult<(String, Vec<Strin
     tokio::fs::write(ctx.dir.join(&id), &bytes).await?;
     let verb = if matches!(kind, ImageKind::Edit { .. }) { "Edited" } else { "Generated" };
     let text = format!(
-        "{verb} 1 image with {model}: {id} (size {size}, quality {quality}; {usage}). It is already displayed to the user in the chat, so do not describe it as a link or repeat its data. To change it, call edit_image with image=\"{id}\".",
+        "{verb} 1 image with {model}: {id} (size {size}, quality {quality}; {usage}). It is already displayed to the user. You have not visually inspected the image; do not claim it matches the request or describe unverified details. To change it, call edit_image with image=\"{id}\".",
         model = ctx.model
     );
     Ok((text, vec![id]))

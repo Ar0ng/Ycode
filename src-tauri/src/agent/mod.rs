@@ -266,9 +266,6 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
         let budget = caps.context_window.saturating_sub(max_output).saturating_mul(85) / 100;
         let trimmed = trim_context(&mut messages, budget, &system);
         if trimmed > 0 {
-            for m in messages.iter().filter(|m| m.role == Role::Tool) {
-                state.db.upsert_message(&p.conversation_id, m)?;
-            }
             emit(AgentEvent::Notice { code: "context_trimmed".into(), detail: trimmed.to_string() });
         }
         let history = request_history(&messages);
@@ -423,7 +420,7 @@ async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall,
     };
     let diff = prepared.approval.as_ref().and_then(|a| a.diff.clone());
     if let Some(req) = prepared.approval
-        && !session_allows(state, conv, &req) {
+        && !session_allows(state, conv, ctx.workspace, &req) {
             let request_id = uuid::Uuid::new_v4().to_string();
             let (tx, rx) = oneshot::channel();
             lock(&state.approvals).insert(request_id.clone(), tx);
@@ -441,7 +438,7 @@ async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall,
                     emit(tool_status(mid, call, "cancelled", None));
                     return result(call, "The user denied this action. Do not retry it another way; ask the user how to proceed.".into(), "cancelled", diff);
                 }
-                Decision::AllowSession => remember(state, conv, &req),
+                Decision::AllowSession => remember(state, conv, ctx.workspace, &req),
                 Decision::Allow => {}
             }
         }
@@ -464,23 +461,23 @@ async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall,
     }
 }
 
-fn session_allows(state: &AppState, conv: &str, req: &ApprovalRequest) -> bool {
+fn session_allows(state: &AppState, conv: &str, workspace: Option<&std::path::Path>, req: &ApprovalRequest) -> bool {
     let perms = lock(&state.perms);
     let Some(p) = perms.get(conv) else { return false };
     match req.kind {
-        ApprovalKind::WriteFile => p.writes,
-        ApprovalKind::RunCommand => p.commands.contains(&req.target),
+        ApprovalKind::WriteFile => workspace.is_some_and(|w| p.writes.contains(w)),
+        ApprovalKind::RunCommand => workspace.is_some_and(|w| p.commands.contains(&(w.to_path_buf(), req.target.clone()))),
         ApprovalKind::ReadOutside => p.outside_reads.contains(&req.target),
     }
 }
 
-fn remember(state: &AppState, conv: &str, req: &ApprovalRequest) {
+fn remember(state: &AppState, conv: &str, workspace: Option<&std::path::Path>, req: &ApprovalRequest) {
     let mut perms = lock(&state.perms);
     let p = perms.entry(conv.to_string()).or_default();
     match req.kind {
-        ApprovalKind::WriteFile => p.writes = true,
+        ApprovalKind::WriteFile => { if let Some(w) = workspace { p.writes.insert(w.to_path_buf()); } },
         ApprovalKind::RunCommand => {
-            p.commands.insert(req.target.clone());
+            if let Some(w) = workspace { p.commands.insert((w.to_path_buf(), req.target.clone())); }
         }
         ApprovalKind::ReadOutside => {
             p.outside_reads.insert(req.target.clone());

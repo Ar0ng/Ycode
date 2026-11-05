@@ -34,6 +34,13 @@
   exceeds ~85 % of the window (rough 3-chars-per-token estimate); there is no
   summarisation/compaction.
 - "Allow for this chat" is kept in memory only; it resets when Ycode restarts.
+  Write and command grants are scoped to the selected workspace as well as the chat.
+- File writes recheck the approved path and file contents before writing, but these
+  checks are not an OS-level sandbox or an atomic defense against concurrent path
+  replacement. PowerShell commands run with the user's permissions and can access
+  locations outside the workspace once approved.
+- Context trimming is applied to the request copy, not saved over the original chat
+  history. Trimming changes the cacheable prefix and may cause a cache miss.
 - The terminal tool runs Windows PowerShell 5.1 (`powershell.exe`); PowerShell 7
   isn't used even if installed.
 - One response at a time per conversation; different conversations can run at once.

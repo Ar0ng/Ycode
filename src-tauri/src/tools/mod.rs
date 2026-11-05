@@ -113,11 +113,11 @@ pub fn specs_with(mode: Mode, images: bool) -> Vec<ToolSpec> {
     if images {
         v.push(ToolSpec {
             name: "generate_image",
-            description: "Create a new image with OpenAI GPT Image from a text description. Use only when the user asks for an image (picture, illustration, logo, icon, poster…). Write a detailed prompt in English or the user's language. The result is shown to the user automatically.",
+            description: "Create a new image with OpenAI GPT Image when the user asks for an image. The image model only receives the prompt, not the conversation: faithfully include the user's subject, context, composition, style, exact requested text and constraints. Preserve the requested degree of realism and restraint; do not add dramatic effects, exaggerated features or decorative details unless requested. Do not invent requirements or omit important details. The result is shown automatically; you cannot visually inspect it through this tool.",
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "prompt": { "type": "string", "description": "Detailed description of the image" },
+                    "prompt": { "type": "string", "description": "Self-contained image brief preserving the user's details and constraints without embellishment" },
                     "size": { "type": "string", "enum": crate::images::SIZES, "description": "auto, square 1024x1024, landscape 1536x1024 or portrait 1024x1536" },
                     "quality": { "type": "string", "enum": crate::images::QUALITIES },
                     "transparent_background": { "type": "boolean" }
@@ -127,7 +127,7 @@ pub fn specs_with(mode: Mode, images: bool) -> Vec<ToolSpec> {
         });
         v.push(ToolSpec {
             name: "edit_image",
-            description: "Edit an existing image with OpenAI GPT Image. `image` is the id of an image generated earlier in this chat (img-….png) or a PNG/JPEG/WebP path inside the workspace. Describe the change in `prompt`.",
+            description: "Edit an existing image with OpenAI GPT Image. `image` is an earlier generated image id or a PNG/JPEG/WebP path inside the workspace. Describe the requested changes and what must stay unchanged, preserving the user's style and avoiding unrequested embellishment. The result is shown automatically; you cannot visually inspect it through this tool.",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -188,7 +188,7 @@ pub enum Action {
     Read { path: PathBuf, start: usize, max: usize },
     List { path: PathBuf, depth: usize },
     Search { root: PathBuf, re: regex::Regex, glob: Option<String>, display_root: PathBuf },
-    Write { path: PathBuf, content: String, diff: String },
+    Write { path: PathBuf, workspace: PathBuf, expected: Option<String>, content: String, diff: String },
     Command { command: String, cwd: PathBuf, timeout: u64 },
     Image(crate::images::ImageJob),
     Text(String),
@@ -269,7 +269,7 @@ pub fn prepare(name: &str, args: &Value, ctx: &ToolCtx) -> AppResult<Prepared> {
             let old = read_existing_text(&path)?;
             let diff = unified_diff(&path, old.as_deref().unwrap_or(""), &content);
             let approval = Some(ApprovalRequest { kind: ApprovalKind::WriteFile, target: path.display().to_string(), diff: Some(diff.clone()), warning: None });
-            Ok(Prepared { action: Action::Write { path, content, diff }, approval })
+            Ok(Prepared { action: Action::Write { path, workspace: require_ws(ctx)?.to_path_buf(), expected: old, content, diff }, approval })
         }
         "edit_file" => {
             let path = writable(ctx, arg_str(args, "path")?)?;
@@ -290,7 +290,7 @@ pub fn prepare(name: &str, args: &Value, ctx: &ToolCtx) -> AppResult<Prepared> {
             };
             let diff = unified_diff(&path, &old, &content);
             let approval = Some(ApprovalRequest { kind: ApprovalKind::WriteFile, target: path.display().to_string(), diff: Some(diff.clone()), warning: None });
-            Ok(Prepared { action: Action::Write { path, content, diff }, approval })
+            Ok(Prepared { action: Action::Write { path, workspace: require_ws(ctx)?.to_path_buf(), expected: Some(old), content, diff }, approval })
         }
         "run_command" => {
             let ws = require_ws(ctx)?;
@@ -378,7 +378,8 @@ fn writable(ctx: &ToolCtx, p: &str) -> AppResult<PathBuf> {
 
 fn read_existing_text(p: &Path) -> AppResult<Option<String>> {
     match std::fs::metadata(p) {
-        Err(_) => Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
         Ok(m) if m.len() > MAX_READ_BYTES => Err(AppError::Invalid("file is larger than 5 MB".into())),
         Ok(_) => {
             let bytes = std::fs::read(p)?;
@@ -450,12 +451,19 @@ pub async fn execute(action: Action, cancel: &Cancel) -> AppResult<String> {
                 .await
                 .map_err(|e| AppError::Io(e.to_string()))?
         }
-        Action::Write { path, content, .. } => {
+        Action::Write { path, workspace, expected, content, .. } => {
+            let current = sandbox::resolve(Some(&workspace), &path.to_string_lossy())?;
+            if !matches!(current, Resolved::Inside(ref p) if *p == path) || sandbox::write_forbidden(current.path()).is_some() {
+                return Err(AppError::Permission("file path changed after approval; review the action again".into()));
+            }
+            if read_existing_text(&path)? != expected {
+                return Err(AppError::Invalid("file changed after the diff was prepared; read it again and request a new approval".into()));
+            }
             if let Some(parent) = path.parent() {
                 tokio::fs::create_dir_all(parent).await?;
             }
             // Write to a temp file then rename so a crash never leaves a half file.
-            let tmp = path.with_extension(format!("ycode-tmp-{}", std::process::id()));
+            let tmp = path.with_extension(format!("ycode-tmp-{}", uuid::Uuid::new_v4()));
             tokio::fs::write(&tmp, content.as_bytes()).await?;
             tokio::fs::rename(&tmp, &path).await.inspect_err(|_| {
                 let _ = std::fs::remove_file(&tmp);
@@ -612,6 +620,18 @@ mod tests {
         assert!(after.contains("bye") && after.contains("\r\n"));
         // Ambiguous / missing matches are rejected with guidance.
         assert!(prepare("edit_file", &json!({"path":"src/main.rs","old_string":"nothing-here","new_string":"x"}), &c).is_err());
+    }
+
+    #[tokio::test]
+    async fn write_rejects_changes_made_after_preview() {
+        let w = ws();
+        let s = SkillStore::empty();
+        let c = ctx(&w, &s, Mode::Coding);
+        let p = prepare("edit_file", &json!({"path":"src/main.rs","old_string":"println!(\"hi\");","new_string":"println!(\"bye\");"}), &c).unwrap();
+        std::fs::write(w.join("src/main.rs"), "changed by user").unwrap();
+        let err = execute(p.action, &Cancel::default()).await.unwrap_err();
+        assert!(err.to_string().contains("changed after"));
+        assert_eq!(std::fs::read_to_string(w.join("src/main.rs")).unwrap(), "changed by user");
     }
 
     #[test]
