@@ -45,7 +45,16 @@ jobs:
 
       - name: Rust tests
         working-directory: src-tauri
-        run: cargo test --locked
+        shell: pwsh
+        run: |
+          cargo test --locked 2>&1 | Tee-Object -FilePath test.log
+          if ($LASTEXITCODE -ne 0) {
+            # Public annotation with the failing tests and their panic messages.
+            $lines = Select-String -Path test.log -Pattern '^test .* FAILED$|panicked at|^---- |assertion|left:|right:|error(\[E\d+\])?:' |
+              Select-Object -First 60 | ForEach-Object { $_.Line -replace '\x1b\[[0-9;]*m', '' }
+            Write-Output "::error title=Rust tests failed::$($lines -join '%0A')"
+            exit 1
+          }
 
       - name: Clippy
         working-directory: src-tauri

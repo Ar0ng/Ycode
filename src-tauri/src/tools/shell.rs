@@ -203,7 +203,8 @@ mod tests {
 
     #[tokio::test]
     async fn nonzero_exit_is_an_error() {
-        let err = run("Write-Output 'failed'; exit 7", &std::env::temp_dir(), 5, &Cancel::default()).await.unwrap_err();
+        // Generous limit: a cold CI runner can take several seconds just to start PowerShell.
+        let err = run("Write-Output 'failed'; exit 7", &std::env::temp_dir(), 60, &Cancel::default()).await.unwrap_err();
         assert!(err.to_string().contains("exit code: 7"));
         assert!(err.to_string().contains("failed"));
     }
