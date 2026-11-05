@@ -160,6 +160,8 @@ const en = {
   "err.unknown": "Something went wrong.",
   "err.generic": "Error",
   "err.details": "Details",
+  "err.render": "This page hit an error and couldn't be shown.",
+  "err.back": "Back to chat",
 };
 
 export type Key = keyof typeof en;
@@ -324,6 +326,8 @@ const zh: Record<Key, string> = {
   "err.unknown": "出现了问题。",
   "err.generic": "错误",
   "err.details": "详情",
+  "err.render": "此页面出错，无法显示。",
+  "err.back": "返回对话",
 };
 
 export const dictionaries = { "en-US": en, "zh-CN": zh } as const;

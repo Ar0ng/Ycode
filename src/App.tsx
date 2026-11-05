@@ -8,6 +8,7 @@ import { Composer } from "./components/Composer";
 import { MessageList, ErrorBox } from "./components/MessageList";
 import { SettingsView } from "./components/Settings";
 import { UsageLine } from "./components/UsageLine";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 function useTheme() {
   const theme = useStore((s) => s.settings?.theme ?? "system");
@@ -123,7 +124,11 @@ export default function App() {
   return (
     <div className="flex h-full min-w-[900px]">
       <Sidebar />
-      <main className="flex min-w-0 flex-1 flex-col bg-panel">{view === "settings" ? <SettingsView /> : <ChatArea />}</main>
+      <main className="flex min-w-0 flex-1 flex-col bg-panel">
+        <ErrorBoundary resetKey={view} onBack={() => useStore.getState().setView("chat")}>
+          {view === "settings" ? <SettingsView /> : <ChatArea />}
+        </ErrorBoundary>
+      </main>
       <Notices />
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Check, FolderOpen, Loader2, RefreshCw, Trash2, X } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -64,7 +64,10 @@ function General() {
 function ProviderCard({ id }: { id: ProviderId }) {
   const t = useT();
   const info = useStore((s) => s.providers.find((p) => p.id === id));
-  const models = useStore((s) => s.models.filter((m) => m.provider === id));
+  // Select the stable array and derive locally: a selector that returns a new
+  // array on every call makes zustand re-render forever (blank window).
+  const allModels = useStore((s) => s.models);
+  const models = useMemo(() => allModels.filter((m) => m.provider === id), [allModels, id]);
   const { setProviders, setModels } = useStore.getState();
   const [key, setKey] = useState("");
   const [url, setUrl] = useState(info?.base_url ?? "");

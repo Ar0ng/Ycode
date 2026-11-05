@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { describe, expect, it } from "vitest";
 import { clampEffort, defaultModel, supportedEfforts } from "./effort";
 import { dictionaries, translate } from "./i18n";
@@ -55,6 +56,31 @@ describe("i18n", () => {
   it("covers every provider error kind", () => {
     const kinds = ["missing_key", "invalid_key", "insufficient_balance", "model_not_found", "model_no_access", "rate_limited", "overloaded", "timeout", "network", "stream_interrupted", "bad_request", "refused", "server", "unknown"];
     for (const k of kinds) expect(Object.keys(dictionaries["zh-CN"])).toContain(`err.${k}`);
+  });
+});
+
+describe("store selectors", () => {
+  it("never derive new arrays/objects inside useStore selectors (infinite re-render → blank window)", async () => {
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const files: string[] = [];
+    const walk = (d: string) => {
+      for (const f of readdirSync(d)) {
+        const p = join(d, f);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(f) && !f.endsWith(".test.ts")) files.push(p);
+      }
+    };
+    walk("src");
+    const bad = /useStore\(\(\w+\)\s*=>\s*(?:[^)]*\.(?:filter|map|slice|concat|reduce)\(|\{|\[|\(\{)/;
+    const offenders = files.flatMap((f) =>
+      readFileSync(f, "utf8")
+        .split("\n")
+        .map((l, i) => [l, i + 1] as const)
+        .filter(([l]) => bad.test(l))
+        .map(([, n]) => `${f}:${n}`),
+    );
+    expect(offenders).toEqual([]);
   });
 });
 
