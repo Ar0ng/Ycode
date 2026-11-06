@@ -7,8 +7,7 @@ Read this file first, then `README.md`, then the doc that matches your task (tab
 > it includes `3946eee` (installer .exe now uses the Ycode icon via
 > `bundle.windows.nsis.installerIcon`); keep that line in `tauri.conf.json`. Release
 > checklist: bump the 3 version fields → `cd src-tauri && cargo update -p ycode` →
-> push → tag `v0.2.2`. Another agent will release V0.2.3 after yours, so leave `main`
-> pushed and clean when done.
+> push → tag `v0.2.2`. Leave `main` pushed and clean when done.
 
 ## 1. What Ycode is
 
