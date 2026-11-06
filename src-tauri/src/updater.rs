@@ -7,6 +7,30 @@ use serde::Serialize;
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_updater::UpdaterExt;
 
+/// Release channel baked in at compile time (`YCODE_CHANNEL`, set by
+/// scripts/build-pre.ps1). Only `stable` builds update from GitHub; snapshot,
+/// preview and rc builds (the separate "YC_pre" app) are replaced by installing
+/// newer local builds, so they can never pull the stable installer into their
+/// own folder.
+pub const CHANNEL: &str = match option_env!("YCODE_CHANNEL") {
+    Some(c) => c,
+    None => "stable",
+};
+
+pub fn updates_allowed(channel: &str) -> bool {
+    channel.is_empty() || channel == "stable"
+}
+
+fn ensure_stable() -> AppResult<()> {
+    if updates_allowed(CHANNEL) {
+        Ok(())
+    } else {
+        Err(AppError::Update(format!(
+            "This is a {CHANNEL} build. Pre-release builds don't update from GitHub; install the next local build instead."
+        )))
+    }
+}
+
 /// NSIS requires /D to be the final argument, unquoted even when it contains spaces.
 /// Only target an existing NSIS installation, never a development or portable build.
 #[cfg(windows)]
@@ -57,6 +81,7 @@ fn updater<R: Runtime>(app: &AppHandle<R>, repo: &str, install_dir_arg: Option<s
 }
 
 pub async fn check<R: Runtime>(app: &AppHandle<R>, repo: &str) -> AppResult<UpdateInfo> {
+    ensure_stable()?;
     let current = app.package_info().version.to_string();
     let u = updater(app, repo, None)?.check().await.map_err(|e| AppError::Update(e.to_string()))?;
     Ok(match u {
@@ -68,6 +93,7 @@ pub async fn check<R: Runtime>(app: &AppHandle<R>, repo: &str) -> AppResult<Upda
 /// Download, verify the minisign signature (inside the plugin) and run the
 /// installer. On Windows the installer closes the app and relaunches it.
 pub async fn install<R: Runtime>(app: &AppHandle<R>, repo: &str, mut progress: impl FnMut(u64, Option<u64>)) -> AppResult<()> {
+    ensure_stable()?;
     #[cfg(windows)]
     let install_dir_arg = Some(nsis_install_dir_arg(&std::env::current_exe().map_err(|e| AppError::Update(format!("Cannot locate the running Ycode executable: {e}")))?)?);
     #[cfg(not(windows))]
@@ -92,6 +118,17 @@ pub async fn install<R: Runtime>(app: &AppHandle<R>, repo: &str, mut progress: i
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_stable_builds_self_update() {
+        assert!(updates_allowed("stable"));
+        assert!(updates_allowed(""));
+        for c in ["snapshot", "preview", "rc"] {
+            assert!(!updates_allowed(c), "{c} builds must not self-update");
+        }
+        // Normal `cargo test` / CI builds are stable.
+        assert_eq!(CHANNEL, "stable");
+    }
 
     #[test]
     fn repo_validation() {

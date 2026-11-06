@@ -166,6 +166,8 @@ export interface Bootstrap {
   skills: SkillMeta[];
   recovery_notice?: string | null;
   os_user: string;
+  /** stable | snapshot | preview | rc */
+  channel: string;
   avatar?: string | null;
   schema_version: number;
 }

@@ -8,7 +8,7 @@ import { api } from "../lib/api";
 import type { AppError, ProviderId } from "../lib/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { isLegacy, modelKey } from "../lib/models";
-import { displayVersion } from "../lib/format";
+import { channelLabel, displayVersion } from "../lib/format";
 
 // Keep in sync with images::KNOWN_MODELS (src-tauri/src/images.rs).
 const IMAGE_MODELS = ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"];
@@ -343,11 +343,15 @@ function Updates() {
 function About() {
   const t = useT();
   const version = useStore((s) => s.version);
+  const channel = useStore((s) => s.channel);
   const [dir, setDir] = useState<string | null>(null);
   return (
     <div className="text-[13px]">
       <p className="mb-2 font-medium">Ycode</p>
-      <p className="mb-4 text-muted">{t("about.version", { v: displayVersion(version) })}</p>
+      <p className="mb-4 text-muted">
+        {t("about.version", { v: displayVersion(version) })}
+        {channelLabel(channel) && <span className="ml-2 rounded border border-warn/50 px-1 text-[10px] font-semibold text-warn">{channelLabel(channel)}</span>}
+      </p>
       <p className="mb-4 text-muted">{t("about.privacy")}</p>
       <button
         type="button"

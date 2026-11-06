@@ -1,0 +1,22 @@
+{
+  "$comment": "Pre-release channel overlay (snapshot / preview / rc). Merged over tauri.conf.json by scripts/build-pre.ps1, which also sets the version (e.g. 0.2.3-preview.1) and YCODE_CHANNEL. Produces the separate 'YC_pre' app: own name, install folder and data directory (com.ycode.desktop.preview), never updates itself from GitHub.",
+  "productName": "YC_pre",
+  "mainBinaryName": "YC_pre",
+  "identifier": "com.ycode.desktop.preview",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "YC_pre",
+        "width": 1180,
+        "height": 780,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true
+      }
+    ]
+  },
+  "bundle": {
+    "createUpdaterArtifacts": false
+  }
+}

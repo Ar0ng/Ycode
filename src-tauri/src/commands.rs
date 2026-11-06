@@ -45,6 +45,8 @@ pub struct Bootstrap {
     /// Windows user name, used when no profile name is set.
     os_user: String,
     avatar: Option<String>,
+    /// stable | snapshot | preview | rc
+    channel: &'static str,
 }
 
 fn providers_info(st: &AppState, s: &Settings) -> Vec<ProviderInfo> {
@@ -75,6 +77,7 @@ pub fn bootstrap(app: tauri::AppHandle, st: St) -> AppResult<Bootstrap> {
         schema_version: st.db.schema_version(),
         os_user: std::env::var("USERNAME").unwrap_or_default(),
         avatar: st.db.load_avatar(),
+        channel: crate::updater::CHANNEL,
         settings: s,
     })
 }

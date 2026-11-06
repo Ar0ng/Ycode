@@ -3,11 +3,17 @@
 Last updated: **2026-11-06** (v0.2.1).
 Read this file first, then `README.md`, then the doc that matches your task (table at the end).
 
-> **Note for the agent releasing V0.2.2 (2026-11-06):** `git pull` `main` before you start —
-> it includes `3946eee` (installer .exe now uses the Ycode icon via
-> `bundle.windows.nsis.installerIcon`); keep that line in `tauri.conf.json`. Release
-> checklist: bump the 3 version fields → `cd src-tauri && cargo update -p ycode` →
-> push → tag `v0.2.2`. Leave `main` pushed and clean when done.
+> **Development workflow (from 2026-11-07): local first.**
+> 1. Develop and commit **locally**; do **not** push to GitHub yet.
+> 2. Build a test version of the separate **YC_pre** app and install it into
+>    `E:\YCode\YC_pre`:
+>    `powershell -ExecutionPolicy Bypass -File scripts\build-pre.ps1 -Channel preview -Number <n> -Install`
+>    (channels in order: `snapshot` → `preview` → `rc`; version = next patch +
+>    `-<channel>.<n>`, e.g. `0.2.3-preview.2`).
+> 3. The owner tests it in YC_pre (own data folder `com.ycode.desktop.preview`; it never
+>    self-updates and never touches the stable `E:\YCode\Ycode` install).
+> 4. Only after the owner approves: push `main`, bump the version, tag `vX.Y.Z`
+>    (release checklist in §7 / docs/RELEASING.md).
 
 ## 1. What Ycode is
 
@@ -154,6 +160,17 @@ components/*                            providers/      openai.rs · deepseek.rs
 - **Tests must not touch real keys or real data.** The Credential Manager round-trip test is `#[ignore]` and uses its own entry.
 
 ## 7. Commands
+
+| Pre-release (YC_pre) task | Command |
+|---|---|
+| Build a test version only | `scripts\build-pre.ps1 -Channel snapshot -Number 1` |
+| Build + install into `E:\YCode\YC_pre` | `scripts\build-pre.ps1 -Channel preview -Number 2 -Install` |
+| Release candidate | `scripts\build-pre.ps1 -Channel rc -Number 1 -Install` |
+
+Overlay config: `src-tauri/tauri.pre.conf.json` (product `YC_pre`, identifier
+`com.ycode.desktop.preview`, unsigned, no updater artifacts). The channel is compiled in via
+`YCODE_CHANNEL` (`updater::CHANNEL`); non-stable builds refuse to check/install updates.
+
 
 Prerequisites: Windows 10/11 x64, Node 24 + npm 11, Rust stable (MSVC target), VS 2022 Build
 Tools (C++ workload + Windows SDK), WebView2. On the original machine Rust lives on D:, so set:

@@ -80,6 +80,28 @@ pre-releases are not offered to users.
   signed NSIS `.exe` update packages. Older installed versions must first receive
   this updater fix before their later updates can preserve the running path.
 
+## Pre-release builds (YC_pre)
+
+Test builds are a **separate app** so they can't disturb the stable install:
+
+| | Stable | Pre-release |
+|---|---|---|
+| Name / exe | Ycode / `Ycode.exe` | YC_pre / `YC_pre.exe` |
+| Install folder (owner's PC) | `E:\YCode\Ycode` | `E:\YCode\YC_pre` |
+| Data folder | `%APPDATA%\com.ycode.desktop` | `%APPDATA%\com.ycode.desktop.preview` |
+| Version | `0.2.3` | `0.2.3-snapshot.1` → `-preview.1` → `-rc.1` |
+| Updates | in-app from GitHub Releases | never; install the next local build |
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-pre.ps1 -Channel preview -Number 2 -Install
+```
+
+The script merges `src-tauri/tauri.pre.conf.json` + the version into a temporary
+config, compiles with `YCODE_CHANNEL=<channel>` (non-stable builds disable the updater
+and show the channel next to the version), builds an unsigned installer and, with
+`-Install`, installs it silently into `E:\YCode\YC_pre`. It does not modify the repo
+or publish anything.
+
 ## Local signed build
 
 ```powershell

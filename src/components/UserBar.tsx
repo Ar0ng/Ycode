@@ -3,7 +3,7 @@ import { ArrowDownCircle, Check, Loader2, Settings as SettingsIcon, UserRound } 
 import { relaunch } from "@tauri-apps/plugin-process";
 import { displayName, useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
-import { displayVersion } from "../lib/format";
+import { channelLabel, displayVersion } from "../lib/format";
 import { Avatar } from "./Avatar";
 import { Menu, MenuItem, useDropdown } from "./Popover";
 import { ProfileDialog } from "./ProfileDialog";
@@ -13,7 +13,19 @@ function UpdatePanel() {
   const t = useT();
   const u = useStore((s) => s.update);
   const version = useStore((s) => s.version);
+  const channel = useStore((s) => s.channel);
   const { checkUpdate, installUpdate } = useStore.getState();
+  if (channelLabel(channel)) {
+    return (
+      <div className="w-full p-2 text-[12.5px]">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="font-medium">{t("update.button")}</span>
+          <span className="text-[11px] text-faint">{t("about.version", { v: displayVersion(version) })}</span>
+        </div>
+        <p className="text-xs leading-relaxed text-muted">{t("update.preBuild", { channel: channelLabel(channel)! })}</p>
+      </div>
+    );
+  }
   const btn = "inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-xs hover:bg-hover disabled:opacity-50";
   return (
     <div className="w-full p-2 text-[12.5px]">
@@ -74,6 +86,8 @@ export function UserBar({ compact = false }: { compact?: boolean }) {
   const updateAvailable = useStore((s) => !!s.update.info?.available);
   const newVersion = useStore((s) => s.update.info?.version ?? null);
   const hasInfo = useStore((s) => !!s.update.info);
+  const channel = useStore((s) => s.channel);
+  const version = useStore((s) => s.version);
   const { setView, checkUpdate } = useStore.getState();
   const user = useDropdown();
   const upd = useDropdown();
@@ -117,14 +131,19 @@ export function UserBar({ compact = false }: { compact?: boolean }) {
           </Menu>
         )}
       </div>
-      <div className={compact ? "relative" : ""} ref={upd.ref}>
+      <div className={compact ? "relative" : "flex items-center gap-1"} ref={upd.ref}>
+        {!compact && channelLabel(channel) && (
+          <span className="rounded border border-warn/50 px-1 text-[10px] font-semibold tracking-wide text-warn" title={displayVersion(version)}>
+            {channelLabel(channel)}
+          </span>
+        )}
         <button
           type="button"
           title={updateAvailable ? t("update.new", { version: displayVersion(newVersion) }) : t("update.button")}
           onClick={() => {
             const opening = !upd.open;
             upd.setOpen(opening);
-            if (opening && !hasInfo) checkUpdate();
+            if (opening && !hasInfo && !channelLabel(channel)) checkUpdate();
           }}
           className={`flex shrink-0 items-center gap-1 rounded-md text-xs ${
             updateAvailable ? "bg-accent px-2 py-1.5 font-medium text-accent-fg" : "p-1.5 text-muted hover:bg-hover hover:text-fg"

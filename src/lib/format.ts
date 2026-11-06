@@ -1,3 +1,8 @@
+/** Short label for a pre-release channel ("PREVIEW"), or null for stable builds. */
+export function channelLabel(channel: string | null | undefined): string | null {
+  return channel && channel !== "stable" ? channel.toUpperCase() : null;
+}
+
 /**
  * How a version is shown in the UI: "V0.1.4". Config files keep plain semver
  * ("0.1.4") because Tauri and the updater require it; git tags stay "v0.1.4".

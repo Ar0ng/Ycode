@@ -45,6 +45,8 @@ interface State {
   /** Windows user name (fallback for the profile name). */
   osUser: string;
   avatar: string | null;
+  /** Build channel; anything but "stable" never updates from GitHub. */
+  channel: string;
   update: UpdateState;
   bootError: string | null;
   version: string;
@@ -212,6 +214,7 @@ export const useStore = create<State & Actions>((set, get) => {
     ready: false,
     osUser: "",
     avatar: null,
+    channel: "stable",
     update: { info: null, status: "idle", progress: "", error: null },
     bootError: null,
     version: "",
@@ -251,11 +254,12 @@ export const useStore = create<State & Actions>((set, get) => {
           groups: b.groups,
           skills: b.skills,
           osUser: b.os_user ?? "",
+          channel: b.channel ?? "stable",
           avatar: b.avatar ?? null,
         });
         if (b.recovery_notice) get().addNotice("recovered", b.recovery_notice);
         // Non-blocking update check shortly after start; offline/failed checks are silent.
-        if (settings.check_updates_on_start) setTimeout(() => get().checkUpdate(true), 4000);
+        if (settings.check_updates_on_start && (b.channel ?? "stable") === "stable") setTimeout(() => get().checkUpdate(true), 4000);
       } catch (e) {
         set({ bootError: (e as AppError)?.message ?? String(e) });
       }

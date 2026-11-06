@@ -12,6 +12,7 @@ const boot: Bootstrap = {
   version: "0.1.0-dev",
   schema_version: 2,
   os_user: "Ar0ng",
+  channel: "stable",
   avatar: null,
   settings: {
     language: null,
