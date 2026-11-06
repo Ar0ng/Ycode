@@ -36,7 +36,10 @@ export function ToolCard({ call, result }: { call: ToolCall; result?: ToolResult
   const live = useStore((s) => s.tools[call.id]);
   const approve = useStore((s) => s.approve);
   const [open, setOpen] = useState(false);
-  const status: ToolStatus = (result?.status as ToolStatus) ?? live?.status ?? "pending";
+  const running = useStore((s) => (s.currentId ? !!s.running[s.currentId] : false));
+  // No saved result and nothing running: the call was interrupted (app closed /
+  // restarted mid-tool); show it as cancelled instead of "waiting" forever.
+  const status: ToolStatus = (result?.status as ToolStatus) ?? live?.status ?? (running ? "pending" : "cancelled");
   const approval = !result ? live?.approval : undefined;
   const diff = result?.diff ?? approval?.diff;
 

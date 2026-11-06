@@ -468,3 +468,57 @@ async fn auto_approve_edits_mode_writes_without_prompt_but_commands_still_ask() 
     let req = ApprovalRequest { kind: ApprovalKind::RunCommand, target: "dir".into(), diff: None, warning: None };
     assert!(!session_allows(&st, "conv-1", Some(&ws), &req));
 }
+
+/// Regression: a tool call whose result was never saved (Ycode closed or was
+/// updated while the tool was pending/running) made every later request fail
+/// with "No tool output found for function call ...". The history sent to the
+/// provider must contain a result for every call.
+#[tokio::test]
+async fn interrupted_tool_call_gets_placeholder_result() {
+    let m = mock(vec![Reply::Sse(ds_text("Continuing.", 0, 10))]).await;
+    let st = state(ProviderId::Deepseek, m.port, None);
+    st.db.create_conversation("conv-1", Mode::Coding, None).unwrap();
+    let mut u = Message::new(Role::User);
+    u.text = "run it".into();
+    st.db.upsert_message("conv-1", &u).unwrap();
+    let mut a = Message::new(Role::Assistant);
+    a.provider = Some(ProviderId::Deepseek);
+    a.model = Some("deepseek-flash".into());
+    a.raw = Some(RawReplay { provider: ProviderId::Deepseek, model: "deepseek-flash".into(), data: serde_json::json!({"reasoning_content": ""}) });
+    a.tool_calls = vec![
+        ToolCall { id: "call_a".into(), name: "list_dir".into(), arguments: serde_json::json!({}) },
+        ToolCall { id: "call_b".into(), name: "read_file".into(), arguments: serde_json::json!({"path": "x"}) },
+    ];
+    st.db.upsert_message("conv-1", &a).unwrap();
+    // Only the first call got a result before the app went away.
+    let mut t = Message::new(Role::Tool);
+    t.tool_results.push(ToolResult { call_id: "call_a".into(), name: "list_dir".into(), content: "x".into(), is_error: false, status: "success".into(), diff: None, images: vec![] });
+    st.db.upsert_message("conv-1", &t).unwrap();
+    let (emit, ev) = collector();
+    run(st.clone(), params(ProviderId::Deepseek, "deepseek-flash", "continue", None, Mode::Coding), Cancel::default(), emit).await;
+    assert!(!ev.lock().unwrap().iter().any(|e| matches!(e, AgentEvent::Error { .. })), "request must succeed");
+    let body = &m.bodies.lock().unwrap()[0];
+    let msgs = body["messages"].as_array().unwrap();
+    let tool_ids: Vec<&str> = msgs.iter().filter(|m| m["role"] == "tool").map(|m| m["tool_call_id"].as_str().unwrap()).collect();
+    assert_eq!(tool_ids, vec!["call_a", "call_b"], "every call has a result, in order, before the next user turn");
+    let b = msgs.iter().find(|m| m["tool_call_id"] == "call_b").unwrap();
+    assert!(b["content"].as_str().unwrap().contains("interrupted"));
+    // Saved history is not rewritten.
+    assert_eq!(st.db.get_conversation("conv-1").unwrap().messages[2].tool_results.len(), 1);
+}
+
+#[test]
+fn request_history_repairs_calls_without_any_result() {
+    let mut u1 = Message::new(Role::User);
+    u1.text = "a".into();
+    let mut a = Message::new(Role::Assistant);
+    a.tool_calls = vec![ToolCall { id: "c1".into(), name: "run_command".into(), arguments: serde_json::json!({}) }];
+    let mut u2 = Message::new(Role::User);
+    u2.text = "b".into();
+    let h = request_history(&[u1, a.clone(), u2]);
+    assert_eq!(h.iter().map(|m| m.role).collect::<Vec<_>>(), vec![Role::User, Role::Assistant, Role::Tool, Role::User]);
+    assert_eq!(h[2].tool_results[0].call_id, "c1");
+    assert_eq!(h[2].tool_results[0].status, "cancelled");
+    // Deterministic, so the cached prefix stays stable across requests.
+    assert_eq!(request_history(&[a.clone()]), request_history(&[a]));
+}

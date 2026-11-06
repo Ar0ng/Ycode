@@ -106,12 +106,57 @@ pub fn plan_effort(history: &[Message], provider: ProviderId, caps: &ModelCaps, 
     }
 }
 
-fn request_history(all: &[Message]) -> Vec<Message> {
-    all.iter()
+/// Result text for a tool call that never got a result (Ycode was closed,
+/// restarted for an update, or crashed while the call was pending or running).
+const INTERRUPTED_TOOL: &str = "The tool call was interrupted before it finished (Ycode was stopped or closed) and produced no result. Do not assume it ran.";
+
+pub(crate) fn request_history(all: &[Message]) -> Vec<Message> {
+    let kept: Vec<Message> = all
+        .iter()
         .filter(|m| !(m.role == Role::Assistant && m.status == "error"))
         .filter(|m| !(m.role == Role::Assistant && m.text.is_empty() && m.tool_calls.is_empty() && m.raw.is_none()))
         .cloned()
-        .collect()
+        .collect();
+    // Every provider rejects a tool call without a matching result, which made a
+    // chat unusable after an interrupted run. Fill in a deterministic placeholder
+    // (same text every time, so the cached prefix stays stable). The saved
+    // history itself is never rewritten.
+    let mut out = Vec::with_capacity(kept.len() + 1);
+    let mut i = 0;
+    while i < kept.len() {
+        let m = kept[i].clone();
+        i += 1;
+        if m.role != Role::Assistant || m.tool_calls.is_empty() {
+            out.push(m);
+            continue;
+        }
+        let calls = m.tool_calls.clone();
+        out.push(m);
+        let mut results = if i < kept.len() && kept[i].role == Role::Tool {
+            i += 1;
+            kept[i - 1].clone()
+        } else {
+            let mut t = Message::new(Role::Tool);
+            t.id = format!("{}-interrupted", out.last().map(|a| a.id.as_str()).unwrap_or(""));
+            t.created_at = out.last().map(|a| a.created_at).unwrap_or(0);
+            t
+        };
+        for c in &calls {
+            if !results.tool_results.iter().any(|r| r.call_id == c.id) {
+                results.tool_results.push(ToolResult {
+                    call_id: c.id.clone(),
+                    name: c.name.clone(),
+                    content: INTERRUPTED_TOOL.into(),
+                    is_error: true,
+                    status: "cancelled".into(),
+                    diff: None,
+                    images: vec![],
+                });
+            }
+        }
+        out.push(results);
+    }
+    out
 }
 
 fn estimate_tokens(history: &[Message], system: &[String]) -> u64 {
