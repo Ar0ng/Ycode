@@ -1,6 +1,6 @@
 # Ycode — Developer handoff
 
-Last updated: **2026-11-06** (v0.2.0).
+Last updated: **2026-11-06** (v0.2.1).
 Read this file first, then `README.md`, then the doc that matches your task (table at the end).
 
 ## 1. What Ycode is
@@ -20,7 +20,7 @@ Credential Manager.
 |---|---|
 | Repository | https://github.com/Ar0ng/Ycode (branch `main`) |
 | Local path (original machine) | `I:\ClaudeData\Ycode` |
-| Current version | 0.2.0 (shown in the app as "V0.2.0") (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` — keep all three equal) |
+| Current version | 0.2.1 (shown in the app as "V0.2.1") (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` — keep all three equal) |
 | App identifier / data dir | `com.ycode.desktop` → `%APPDATA%\com.ycode.desktop\` (`ycode.db`, `images\`, `skills\`, `logs\`) |
 | DB schema version | 2 (`PRAGMA user_version`) |
 | Code size | Rust ≈6.8k lines (incl. tests) · TS/TSX ≈3.4k lines |
