@@ -3,6 +3,13 @@
 Last updated: **2026-11-06** (v0.2.1).
 Read this file first, then `README.md`, then the doc that matches your task (table at the end).
 
+> **Note for the agent releasing V0.2.2 (2026-11-06):** `git pull` `main` before you start —
+> it includes `3946eee` (installer .exe now uses the Ycode icon via
+> `bundle.windows.nsis.installerIcon`); keep that line in `tauri.conf.json`. Release
+> checklist: bump the 3 version fields → `cd src-tauri && cargo update -p ycode` →
+> push → tag `v0.2.2`. Another agent will release V0.2.3 after yours, so leave `main`
+> pushed and clean when done.
+
 ## 1. What Ycode is
 
 Ycode is a Windows desktop AI agent built with Tauri 2: a Rust backend and a React + TypeScript UI.
