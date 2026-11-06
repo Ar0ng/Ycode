@@ -249,6 +249,17 @@ pub fn stop_run(st: St, conversation_id: String) {
 }
 
 #[tauri::command]
+pub fn steer_run(st: St, conversation_id: String, text: String) -> AppResult<()> {
+    let text = text.trim();
+    if text.is_empty() || text.chars().count() > 20_000 {
+        return Err(AppError::Invalid("Guidance must contain 1–20000 characters.".into()));
+    }
+    let runs = lock(&st.runs);
+    let run = runs.get(&conversation_id).ok_or_else(|| AppError::Invalid("This response has already ended; send the message normally.".into()))?;
+    run.enqueue_guidance(text.to_string())
+}
+
+#[tauri::command]
 pub fn respond_approval(st: St, request_id: String, decision: Decision) -> AppResult<()> {
     agent::respond_approval(&st, &request_id, decision)
 }
@@ -366,6 +377,7 @@ pub fn validate_skill(path: String) -> AppResult<SkillMeta> {
 
 #[tauri::command]
 pub async fn check_update(app: tauri::AppHandle, st: St<'_>) -> AppResult<crate::updater::UpdateInfo> {
+    if cfg!(feature = "internal-preview") { return Err(AppError::Update("Internal preview updates are installed locally.".into())); }
     let repo = st.settings().effective_update_repo().to_string();
     crate::updater::check(&app, &repo).await
 }
@@ -378,6 +390,7 @@ pub struct Progress {
 
 #[tauri::command]
 pub async fn install_update(app: tauri::AppHandle, st: St<'_>, on_progress: Channel<Progress>) -> AppResult<()> {
+    if cfg!(feature = "internal-preview") { return Err(AppError::Update("Internal preview updates are installed locally.".into())); }
     let repo = st.settings().effective_update_repo().to_string();
     crate::updater::install(&app, &repo, |downloaded, total| {
         let _ = on_progress.send(Progress { downloaded, total });

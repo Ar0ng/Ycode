@@ -192,6 +192,7 @@ pub fn trim_context(history: &mut [Message], budget: u64, system: &[String]) -> 
 
 pub async fn run(state: Arc<AppState>, p: RunParams, cancel: Cancel, emit: Emit) {
     let conv = p.conversation_id.clone();
+    let mode = p.mode;
     let result = run_inner(&state, p, &cancel, &emit).await;
     let stopped = match result {
         Ok(stopped) => stopped,
@@ -201,8 +202,41 @@ pub async fn run(state: Arc<AppState>, p: RunParams, cancel: Cancel, emit: Emit)
             false
         }
     };
+    let pending = cancel.close_guidance();
+    if !pending.is_empty() {
+        let skills = state.skills_snapshot();
+        let mut saved = true;
+        for text in pending {
+            match make_guidance(&text, mode, &skills).and_then(|m| { state.db.upsert_message(&conv, &m)?; Ok(m) }) {
+                Ok(m) => emit(AgentEvent::Message { message: m }),
+                Err(e) => { saved = false; emit(AgentEvent::Error { message_id: None, error: e }); }
+            }
+        }
+        if saved { emit(AgentEvent::Notice { code: "guidance_unprocessed".into(), detail: String::new() }); }
+    }
     state.finish_run(&conv);
     emit(AgentEvent::Finished { stopped });
+}
+
+fn make_guidance(text: &str, mode: Mode, skills: &crate::skills::SkillStore) -> AppResult<Message> {
+    let mut m = Message::new(Role::User);
+    m.text = text.to_string();
+    m.mode = Some(mode);
+    for name in skills.mentioned(text) {
+        let body = skills.load_instructions(&name)?;
+        m.attachments.push(Attachment { id: uuid::Uuid::new_v4().to_string(), name: format!("skill:{name}"), mime: "text/markdown".into(), size: body.len() as u64, kind: AttachmentKind::Text, text: Some(body) });
+    }
+    Ok(m)
+}
+
+fn append_guidance(state: &AppState, conv: &str, mode: Mode, skills: &crate::skills::SkillStore, messages: &mut Vec<Message>, pending: Vec<String>, emit: &Emit) -> AppResult<()> {
+    for text in pending {
+        let m = make_guidance(&text, mode, skills)?;
+        state.db.upsert_message(conv, &m)?;
+        emit(AgentEvent::Message { message: m.clone() });
+        messages.push(m);
+    }
+    Ok(())
 }
 
 async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &Emit) -> AppResult<bool> {
@@ -308,6 +342,7 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
         if cancel.is_cancelled() {
             return Ok(true);
         }
+        append_guidance(state, &p.conversation_id, p.mode, &skills, &mut messages, cancel.take_guidance(false), emit)?;
         let budget = caps.context_window.saturating_sub(max_output).saturating_mul(85) / 100;
         let trimmed = trim_context(&mut messages, budget, &system);
         if trimmed > 0 {
@@ -350,10 +385,32 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
             Ok(TurnResult::Stopped(o)) => {
                 a.text = o.text;
                 a.reasoning = o.reasoning;
+                a.raw = (!o.raw.is_null()).then(|| RawReplay { provider: p.provider, model: caps.id.clone(), data: o.raw });
                 a.status = "partial".into();
                 state.db.upsert_message(&p.conversation_id, &a)?;
                 emit(AgentEvent::Message { message: a });
                 return Ok(true);
+            }
+            Ok(TurnResult::Steered(o)) => {
+                a.text = o.text;
+                a.reasoning = o.reasoning;
+                a.raw = (!o.raw.is_null()).then(|| RawReplay { provider: p.provider, model: caps.id.clone(), data: o.raw });
+                a.status = "partial".into();
+                state.db.upsert_message(&p.conversation_id, &a)?;
+                emit(AgentEvent::Message { message: a.clone() });
+                messages.push(a);
+                continue;
+            }
+            Ok(TurnResult::Interrupted(o, e)) => {
+                crate::logging::warn(&format!("provider stream interrupted: {}", short_err(&e)));
+                a.text = o.text;
+                a.reasoning = o.reasoning;
+                a.status = "error".into();
+                a.error = serde_json::to_value(&e).ok();
+                state.db.upsert_message(&p.conversation_id, &a)?;
+                emit(AgentEvent::Message { message: a.clone() });
+                emit(AgentEvent::Error { message_id: Some(a.id), error: e });
+                return Ok(false);
             }
             Err(AppError::Cancelled) => {
                 a.status = "partial".into();
@@ -399,19 +456,23 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
             _ => {}
         }
         if a.tool_calls.is_empty() {
-            return Ok(false);
+            messages.push(a);
+            let pending = cancel.take_guidance(true);
+            if pending.is_empty() { return Ok(false); }
+            append_guidance(state, &p.conversation_id, p.mode, &skills, &mut messages, pending, emit)?;
+            continue;
         }
 
         // ---- tool execution (sequential, each may need approval) ----
         let mut results_msg = Message::new(Role::Tool);
         let mut stopped = false;
         for call in &a.tool_calls {
-            if stopped || cancel.is_cancelled() {
-                stopped = true;
+            if stopped || cancel.is_cancelled() || cancel.has_guidance() {
+                stopped |= cancel.is_cancelled();
                 results_msg.tool_results.push(ToolResult {
                     call_id: call.id.clone(),
                     name: call.name.clone(),
-                    content: "Cancelled by the user before running.".into(),
+                    content: if cancel.has_guidance() { "Skipped because the user provided new guidance." } else { "Cancelled by the user before running." }.into(),
                     is_error: true,
                     status: "cancelled".into(),
                     diff: None,
@@ -422,7 +483,7 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
             }
             let ctx = ToolCtx { mode: p.mode, workspace: ws_path.as_deref(), skills: &skills, images: image_ctx.clone() };
             let r = run_tool(state, &p.conversation_id, &a.id, call, &ctx, cancel, emit).await;
-            if r.status == "cancelled" {
+            if r.status == "cancelled" && !cancel.has_guidance() {
                 stopped = true;
             }
             crate::logging::info(&format!("tool {} -> {}", call.name, r.status));
@@ -477,6 +538,11 @@ async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall,
                     emit(tool_status(mid, call, "cancelled", None));
                     return result(call, "Cancelled by the user.".into(), "cancelled", diff);
                 }
+                _ = cancel.guidance_available() => {
+                    lock(&state.approvals).remove(&request_id);
+                    emit(tool_status(mid, call, "cancelled", None));
+                    return result(call, "Skipped because the user provided new guidance.".into(), "cancelled", diff);
+                }
             };
             match decision {
                 Decision::Deny => {
@@ -487,8 +553,23 @@ async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall,
                 Decision::Allow => {}
             }
         }
+    if cancel.has_guidance() {
+        emit(tool_status(mid, call, "cancelled", None));
+        return result(call, "Skipped because the user provided new guidance.".into(), "cancelled", diff);
+    }
     emit(tool_status(mid, call, "running", None));
-    match tools::execute_full(prepared.action, cancel).await {
+    let output = match prepared.action {
+        tools::Action::Visual { path, question } => {
+            let safe = tools::sandbox::resolve(ctx.workspace, &path.to_string_lossy());
+            match (safe, state.endpoint(ProviderId::Deepseek)) {
+                (Ok(tools::sandbox::Resolved::Inside(path)), Ok(endpoint)) => tools::visual::inspect(path, question, state.http.clone(), endpoint, state.data_dir.join("images"), cancel).await,
+                (Err(e), _) | (_, Err(e)) => Err(e),
+                _ => Err(AppError::Permission("visual file is no longer inside the workspace".into())),
+            }
+        }
+        action => tools::execute_full(action, cancel).await,
+    };
+    match output {
         Ok((out, images)) => {
             emit(tool_status(mid, call, "success", None));
             let mut r = result(call, out, "success", diff);

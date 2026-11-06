@@ -5,10 +5,19 @@
 use crate::error::{AppError, AppResult};
 use crate::model::ProviderId;
 
+#[cfg(not(feature = "internal-preview"))]
 const SERVICE: &str = "Ycode";
+#[cfg(feature = "internal-preview")]
+const SERVICE: &str = "YC_pre";
+#[cfg(feature = "internal-preview")]
+const DISABLED: &str = "__YCODE_PREVIEW_KEY_DISABLED__";
 
 fn entry(p: ProviderId) -> AppResult<keyring::Entry> {
-    keyring::Entry::new(SERVICE, p.as_str()).map_err(|e| AppError::Secret(e.to_string()))
+    entry_for(SERVICE, p)
+}
+
+fn entry_for(service: &str, p: ProviderId) -> AppResult<keyring::Entry> {
+    keyring::Entry::new(service, p.as_str()).map_err(|e| AppError::Secret(e.to_string()))
 }
 
 pub fn set_key(p: ProviderId, key: &str) -> AppResult<()> {
@@ -19,18 +28,36 @@ pub fn set_key(p: ProviderId, key: &str) -> AppResult<()> {
     if key.chars().any(|c| c.is_control() || c.is_whitespace()) {
         return Err(AppError::Invalid("key contains whitespace or control characters".into()));
     }
+    #[cfg(feature = "internal-preview")]
+    if key == DISABLED { return Err(AppError::Invalid("reserved key value".into())); }
     entry(p)?.set_password(key).map_err(|e| AppError::Secret(e.to_string()))
 }
 
 pub fn get_key(p: ProviderId) -> AppResult<Option<String>> {
     match entry(p)?.get_password() {
+        #[cfg(feature = "internal-preview")]
+        Ok(k) if k == DISABLED => Ok(None),
         Ok(k) => Ok(Some(k)),
-        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(keyring::Error::NoEntry) => {
+            #[cfg(feature = "internal-preview")]
+            {
+                match entry_for("Ycode", p)?.get_password() {
+                    Ok(k) => Ok(Some(k)),
+                    Err(keyring::Error::NoEntry) => Ok(None),
+                    Err(e) => Err(AppError::Secret(e.to_string())),
+                }
+            }
+            #[cfg(not(feature = "internal-preview"))]
+            Ok(None)
+        },
         Err(e) => Err(AppError::Secret(e.to_string())),
     }
 }
 
 pub fn delete_key(p: ProviderId) -> AppResult<()> {
+    #[cfg(feature = "internal-preview")]
+    return entry(p)?.set_password(DISABLED).map_err(|e| AppError::Secret(e.to_string()));
+    #[cfg(not(feature = "internal-preview"))]
     match entry(p)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(AppError::Secret(e.to_string())),

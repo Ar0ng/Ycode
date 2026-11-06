@@ -119,7 +119,7 @@ export function MessageList() {
     return map;
   }, [messages]);
 
-  const visible = messages.filter((m) => m.role !== "tool" && !(m.role === "assistant" && m.status === "error"));
+  const visible = messages.filter((m) => m.role !== "tool" && !(m.role === "assistant" && m.status === "error" && !m.text && !m.reasoning));
   const hidden = Math.max(0, visible.length - limit);
   const shown = visible.slice(hidden);
 

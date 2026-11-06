@@ -28,6 +28,14 @@ pub struct Cancel(Arc<CancelInner>);
 struct CancelInner {
     flag: AtomicBool,
     notify: Notify,
+    guidance: std::sync::Mutex<Guidance>,
+    guidance_notify: Notify,
+}
+
+#[derive(Default)]
+struct Guidance {
+    messages: Vec<String>,
+    closed: bool,
 }
 
 impl Cancel {
@@ -45,6 +53,43 @@ impl Cancel {
                 return;
             }
             n.await;
+        }
+    }
+
+    pub fn enqueue_guidance(&self, text: String) -> Result<(), AppError> {
+        let mut g = self.0.guidance.lock().unwrap_or_else(|p| p.into_inner());
+        if g.closed || self.is_cancelled() {
+            return Err(AppError::Invalid("This response has already ended; send the message normally.".into()));
+        }
+        if g.messages.len() >= 20 {
+            return Err(AppError::Invalid("Too many pending guidance messages.".into()));
+        }
+        g.messages.push(text);
+        self.0.guidance_notify.notify_one();
+        Ok(())
+    }
+
+    pub fn has_guidance(&self) -> bool {
+        !self.0.guidance.lock().unwrap_or_else(|p| p.into_inner()).messages.is_empty()
+    }
+
+    pub fn take_guidance(&self, close_if_empty: bool) -> Vec<String> {
+        let mut g = self.0.guidance.lock().unwrap_or_else(|p| p.into_inner());
+        if close_if_empty && g.messages.is_empty() { g.closed = true; }
+        std::mem::take(&mut g.messages)
+    }
+
+    pub fn close_guidance(&self) -> Vec<String> {
+        let mut g = self.0.guidance.lock().unwrap_or_else(|p| p.into_inner());
+        g.closed = true;
+        std::mem::take(&mut g.messages)
+    }
+
+    pub async fn guidance_available(&self) {
+        loop {
+            let notified = self.0.guidance_notify.notified();
+            if self.has_guidance() { return; }
+            notified.await;
         }
     }
 }
@@ -172,6 +217,8 @@ const MAX_RETRIES: u32 = 2;
 pub enum TurnResult {
     Done(TurnOutput),
     Stopped(TurnOutput),
+    Steered(TurnOutput),
+    Interrupted(TurnOutput, AppError),
 }
 
 pub async fn run_turn(
@@ -187,6 +234,7 @@ pub async fn run_turn(
     let built = build(req);
     let mut attempt = 0;
     loop {
+        if cancel.has_guidance() { return Ok(TurnResult::Steered(decoder(req.provider, req.model).partial())); }
         attempt += 1;
         match stream_once(http, ep, req, &built, cancel, on).await {
             Err(AppError::Provider(e)) if e.retryable && attempt <= MAX_RETRIES && !cancel.is_cancelled() => {
@@ -197,6 +245,7 @@ pub async fn run_turn(
                 tokio::select! {
                     _ = tokio::time::sleep(wait) => {}
                     _ = cancel.cancelled() => return Err(AppError::Cancelled),
+                    _ = cancel.guidance_available() => return Ok(TurnResult::Steered(decoder(req.provider, req.model).partial())),
                 }
             }
             other => return other,
@@ -216,39 +265,81 @@ async fn stream_once(
     for (k, v) in auth_headers(req.provider, &ep.api_key).into_iter().chain(built.headers.iter().cloned()) {
         rb = rb.header(k, v);
     }
+    let mut dec = decoder(req.provider, req.model);
     let send = rb.json(&built.body).send();
+    tokio::pin!(send);
     let resp = tokio::select! {
-        r = send => r.map_err(net_err)?,
+        r = &mut send => r.map_err(net_err)?,
         _ = cancel.cancelled() => return Err(AppError::Cancelled),
+        _ = cancel.guidance_available() => return Ok(TurnResult::Steered(dec.partial())),
+        _ = tokio::time::sleep(Duration::from_secs(30)) => {
+            on(StreamEvent::Notice { message: "waiting_provider".into() });
+            tokio::select! {
+                r = tokio::time::timeout(IDLE_TIMEOUT - Duration::from_secs(30), &mut send) =>
+                    r.map_err(|_| interrupted(false, ProviderErrorKind::Timeout, "waiting for response headers timed out"))?.map_err(net_err)?,
+                _ = cancel.cancelled() => return Err(AppError::Cancelled),
+                _ = cancel.guidance_available() => return Ok(TurnResult::Steered(dec.partial())),
+            }
+        }
     };
     let status = resp.status().as_u16();
     if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
+        let body = tokio::select! {
+            result = tokio::time::timeout(Duration::from_secs(30), resp.text()) =>
+                result.ok().and_then(Result::ok).unwrap_or_default(),
+            _ = cancel.cancelled() => return Err(AppError::Cancelled),
+            _ = cancel.guidance_available() => return Ok(TurnResult::Steered(dec.partial())),
+        };
         return Err(ProviderError::from_status(status, &body).into());
     }
-    let mut dec = decoder(req.provider, req.model);
     let mut parser = SseParser::new();
     let mut stream = resp.bytes_stream();
     let mut events = Vec::new();
     let mut produced = false;
+    let mut last_progress = tokio::time::Instant::now();
+    let mut warned = false;
     loop {
         let next = tokio::select! {
-            n = tokio::time::timeout(IDLE_TIMEOUT, stream.next()) => n,
+            n = stream.next() => n,
             _ = cancel.cancelled() => {
                 return Ok(TurnResult::Stopped(dec.partial()));
             }
+            _ = cancel.guidance_available() => {
+                return Ok(TurnResult::Steered(dec.partial()));
+            }
+            _ = tokio::time::sleep_until(last_progress + IDLE_TIMEOUT) => {
+                let e = interrupted(produced, ProviderErrorKind::Timeout, "stream produced no model output before timeout");
+                return if produced { Ok(TurnResult::Interrupted(dec.partial(), e)) } else { Err(e) };
+            }
+            _ = tokio::time::sleep_until(last_progress + Duration::from_secs(30)), if !warned => {
+                on(StreamEvent::Notice { message: "waiting_provider".into() });
+                warned = true;
+                continue;
+            }
         };
         let chunk = match next {
-            Err(_) => return Err(interrupted(produced, ProviderErrorKind::Timeout, "stream idle timeout")),
-            Ok(None) => break,
-            Ok(Some(Err(e))) => return Err(interrupted(produced, ProviderErrorKind::StreamInterrupted, &e.to_string())),
-            Ok(Some(Ok(b))) => b,
+            None => break,
+            Some(Err(e)) => {
+                let e = interrupted(produced, ProviderErrorKind::StreamInterrupted, &e.to_string());
+                return if produced { Ok(TurnResult::Interrupted(dec.partial(), e)) } else { Err(e) };
+            }
+            Some(Ok(b)) => b,
         };
         for ev in parser.feed(&chunk) {
-            dec.on_event(ev, &mut events)?;
+            if let Err(e) = dec.on_event(ev, &mut events) {
+                let mut e = e;
+                if produced || !events.is_empty() {
+                    e.retryable = false;
+                    for event in events.drain(..) { on(event); }
+                    return Ok(TurnResult::Interrupted(dec.partial(), e.into()));
+                }
+                return Err(e.into());
+            }
         }
         if !events.is_empty() {
             produced = true;
+            last_progress = tokio::time::Instant::now();
+            warned = false;
             for e in events.drain(..) {
                 on(e);
             }
@@ -258,13 +349,23 @@ async fn stream_once(
         }
     }
     for ev in parser.finish() {
-        dec.on_event(ev, &mut events)?;
+        if let Err(e) = dec.on_event(ev, &mut events) {
+            let mut e = e;
+            if produced || !events.is_empty() {
+                e.retryable = false;
+                for event in events.drain(..) { on(event); }
+                return Ok(TurnResult::Interrupted(dec.partial(), e.into()));
+            }
+            return Err(e.into());
+        }
     }
+    if !events.is_empty() { produced = true; }
     for e in events.drain(..) {
         on(e);
     }
     if !dec.done() {
-        return Err(interrupted(produced, ProviderErrorKind::StreamInterrupted, "stream ended before completion"));
+        let e = interrupted(produced, ProviderErrorKind::StreamInterrupted, "stream ended before completion");
+        return if produced { Ok(TurnResult::Interrupted(dec.partial(), e)) } else { Err(e) };
     }
     Ok(TurnResult::Done(dec.finish()?))
 }

@@ -7,6 +7,7 @@
 
 pub mod sandbox;
 pub mod shell;
+pub mod visual;
 
 use crate::error::{AppError, AppResult};
 use crate::model::Mode;
@@ -83,6 +84,11 @@ pub fn specs_with(mode: Mode, images: bool) -> Vec<ToolSpec> {
         },
     ];
     if mode == Mode::Coding {
+        v.push(ToolSpec {
+            name: "inspect_visual",
+            description: "Capture three animation frames of a local SVG or HTML file in the workspace, then send screenshots to DeepSeek Flash for a visual critique. Requires user approval and incurs API charges. Use after creating visual work; do not claim success if it fails.",
+            parameters: json!({ "type": "object", "properties": { "path": { "type": "string" }, "question": { "type": "string", "description": "Specific visual requirements and issues to inspect" } }, "required": ["path", "question"] }),
+        });
         v.push(ToolSpec {
             name: "edit_file",
             description: "Replace an exact text snippet in an existing file. old_string must match exactly once (including whitespace) unless replace_all is true. The user reviews a diff before it is applied.",
@@ -191,6 +197,7 @@ pub enum Action {
     Write { path: PathBuf, workspace: PathBuf, expected: Option<String>, content: String, diff: String },
     Command { command: String, cwd: PathBuf, timeout: u64 },
     Image(crate::images::ImageJob),
+    Visual { path: PathBuf, question: String },
     Text(String),
 }
 
@@ -232,6 +239,20 @@ pub fn prepare(name: &str, args: &Value, ctx: &ToolCtx) -> AppResult<Prepared> {
         return Err(AppError::Permission(format!("tool '{name}' is not available in {:?} mode", ctx.mode)));
     }
     match name {
+        "inspect_visual" => {
+            let ws = require_ws(ctx)?;
+            let Resolved::Inside(path) = sandbox::resolve(Some(ws), arg_str(args, "path")?)? else {
+                return Err(AppError::Permission("visual inspection is limited to the workspace".into()));
+            };
+            if !path.is_file() || !matches!(path.extension().and_then(|s| s.to_str()).map(|s| s.to_ascii_lowercase()).as_deref(), Some("svg" | "html" | "htm")) {
+                return Err(AppError::Invalid("visual inspection requires an existing SVG or HTML file".into()));
+            }
+            let question = arg_str(args, "question")?.trim().to_string();
+            if question.is_empty() || question.len() > 4000 { return Err(AppError::Invalid("visual inspection question must be 1–4000 bytes".into())); }
+            let target = format!("视觉检查 / Visual inspection: {}", path.display());
+            let warning = Some("将运行本地网页脚本（可能访问网络），并把三张截图发送到配置的 DeepSeek 接口，调用 Flash 模型会产生额外费用。 / Runs local page scripts and sends three screenshots to the configured DeepSeek endpoint; Flash usage is billed separately.".into());
+            Ok(Prepared { action: Action::Visual { path, question }, approval: Some(ApprovalRequest { kind: ApprovalKind::RunCommand, target, diff: None, warning }) })
+        }
         "read_file" => {
             let r = sandbox::resolve(ctx.workspace, arg_str(args, "path")?)?;
             let start = arg_u64(args, "start_line").unwrap_or(1).max(1) as usize;
@@ -408,6 +429,7 @@ pub async fn execute_full(action: Action, cancel: &Cancel) -> AppResult<(String,
 pub async fn execute(action: Action, cancel: &Cancel) -> AppResult<String> {
     match action {
         Action::Image(job) => crate::images::run(job, cancel).await.map(|(t, _)| t),
+        Action::Visual { .. } => Err(AppError::Invalid("visual inspection requires an agent session".into())),
         Action::Text(t) => Ok(cap(t)),
         Action::Read { path, start, max } => {
             let meta = std::fs::metadata(&path).map_err(|e| AppError::Io(format!("{}: {e}", path.display())))?;

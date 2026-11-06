@@ -140,3 +140,13 @@ describe("usage", () => {
     expect(fmt(2_500_000)).toBe("2.5M");
   });
 });
+
+describe("context estimate", () => {
+  it("uses recent request input and output, and never reports a negative remainder", async () => {
+    const { contextEstimate } = await import("../components/UsageSummary");
+    const usage = { input_tokens: 80, output_tokens: 10, cached_input_tokens: 40 };
+    expect(contextEstimate(usage, 100)).toEqual({ used: 90, remaining: 10, window: 100 });
+    expect(contextEstimate(usage, 50)?.remaining).toBe(0);
+    expect(contextEstimate(null, 100)).toBeNull();
+  });
+});

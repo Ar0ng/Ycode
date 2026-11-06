@@ -46,6 +46,7 @@ export const api = {
     return invoke<void>("send_message", { params, onEvent: ch });
   },
   stopRun: (conversationId: string) => invoke<void>("stop_run", { conversationId }),
+  steerRun: (conversationId: string, text: string) => invoke<void>("steer_run", { conversationId, text }),
   respondApproval: (requestId: string, decision: "allow" | "allow_session" | "deny") =>
     invoke<void>("respond_approval", { requestId, decision }),
   setWorkspace: (path: string | null) => invoke<Settings>("set_workspace", { path }),

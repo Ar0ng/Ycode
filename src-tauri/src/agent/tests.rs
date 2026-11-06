@@ -271,8 +271,8 @@ async fn approve_session_applies_write() {
 
 #[tokio::test]
 async fn stop_keeps_partial_output() {
-    let partial = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Partial ans\"}}]}\n\n".to_string();
-    let m = mock(vec![Reply::Hang(partial)]).await;
+    let partial = "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"partial thought\",\"content\":\"Partial ans\"}}]}\n\n".to_string();
+    let m = mock(vec![Reply::Hang(partial), Reply::Sse(ds_text("Continued", 0, 10))]).await;
     let st = state(ProviderId::Deepseek, m.port, None);
     let (emit, ev) = collector();
     let cancel = Cancel::default();
@@ -294,7 +294,90 @@ async fn stop_keeps_partial_output() {
     let conv = st.db.get_conversation("conv-1").unwrap();
     assert_eq!(conv.messages[1].status, "partial");
     assert_eq!(conv.messages[1].text, "Partial ans");
+    assert_eq!(conv.messages[1].raw.as_ref().unwrap().data["reasoning_content"], "partial thought");
     assert!(ev.lock().unwrap().iter().any(|e| matches!(e, AgentEvent::Finished { stopped: true })));
+    let (emit, _) = collector();
+    run(st.clone(), params(ProviderId::Deepseek, "deepseek-flash", "continue", None, Mode::Office), Cancel::default(), emit).await;
+    assert_eq!(m.bodies.lock().unwrap()[1]["messages"][2]["reasoning_content"], "partial thought");
+}
+
+#[tokio::test]
+async fn interrupted_stream_preserves_partial_and_can_retry() {
+    let partial = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Visible partial\"}}]}\n\n".to_string();
+    let m = mock(vec![Reply::Sse(partial), Reply::Sse(ds_text("Recovered", 0, 10))]).await;
+    let st = state(ProviderId::Deepseek, m.port, None);
+    let (emit, ev) = collector();
+    run(st.clone(), params(ProviderId::Deepseek, "deepseek-flash", "hello", None, Mode::Office), Cancel::default(), emit.clone()).await;
+    let conv = st.db.get_conversation("conv-1").unwrap();
+    assert_eq!(conv.messages[1].status, "error");
+    assert_eq!(conv.messages[1].text, "Visible partial");
+    assert!(ev.lock().unwrap().iter().any(|e| matches!(e, AgentEvent::Error { .. })));
+    let mut p = params(ProviderId::Deepseek, "deepseek-flash", "", None, Mode::Office);
+    p.text = None;
+    run(st.clone(), p, Cancel::default(), emit).await;
+    assert_eq!(st.db.get_conversation("conv-1").unwrap().messages.last().unwrap().text, "Recovered");
+    assert_eq!(m.bodies.lock().unwrap().len(), 2, "no automatic retry after output");
+}
+
+#[tokio::test]
+async fn guidance_during_stream_is_applied_to_next_request() {
+    let m = mock(vec![Reply::Sse(ds_text("First", 0, 10)), Reply::Sse(ds_text("Adjusted", 0, 10))]).await;
+    let st = state(ProviderId::Deepseek, m.port, None);
+    let c = Cancel::default();
+    let c2 = c.clone();
+    let sent = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sent2 = sent.clone();
+    let emit: Emit = Arc::new(move |e| {
+        if matches!(e, AgentEvent::Delta { .. }) && !sent2.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            c2.enqueue_guidance("Make the background blue".into()).unwrap();
+        }
+    });
+    run(st.clone(), params(ProviderId::Deepseek, "deepseek-flash", "draw", None, Mode::Office), c, emit).await;
+    let conv = st.db.get_conversation("conv-1").unwrap();
+    assert_eq!(conv.messages.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), vec!["draw", "First", "Make the background blue", "Adjusted"]);
+    assert_eq!(m.bodies.lock().unwrap()[1]["messages"][3]["content"], "Make the background blue");
+}
+
+#[tokio::test]
+async fn guidance_interrupts_a_stalled_model_stream() {
+    let partial = "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"thinking\"}}]}\n\n".to_string();
+    let m = mock(vec![Reply::Hang(partial), Reply::Sse(ds_text("Adjusted", 0, 10))]).await;
+    let st = state(ProviderId::Deepseek, m.port, None);
+    let c = Cancel::default();
+    let c2 = c.clone();
+    let sent = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sent2 = sent.clone();
+    let emit: Emit = Arc::new(move |e| {
+        if matches!(e, AgentEvent::Delta { .. }) && !sent2.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            c2.enqueue_guidance("Change direction".into()).unwrap();
+        }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), run(st.clone(), params(ProviderId::Deepseek, "deepseek-flash", "draw", None, Mode::Office), c, emit)).await.expect("guidance must not wait for a stalled stream");
+    let conv = st.db.get_conversation("conv-1").unwrap();
+    assert!(conv.messages.iter().any(|msg| msg.text == "Change direction"));
+    assert_eq!(conv.messages.last().unwrap().text, "Adjusted");
+    assert_eq!(m.bodies.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn guidance_cancels_waiting_approval_before_action() {
+    let ws = temp_ws();
+    let m = mock(vec![Reply::Sse(ds_tool("write_file", "{\"path\":\"out.txt\",\"content\":\"x\"}")), Reply::Sse(ds_text("Understood", 0, 10))]).await;
+    let st = state(ProviderId::Deepseek, m.port, Some(&ws));
+    let c = Cancel::default();
+    let c2 = c.clone();
+    let emit: Emit = Arc::new(move |e| {
+        if matches!(e, AgentEvent::ToolStatus { approval: Some(_), .. }) {
+            c2.enqueue_guidance("Do not write the file".into()).unwrap();
+        }
+    });
+    run(st.clone(), params(ProviderId::Deepseek, "deepseek-flash", "write", None, Mode::Coding), c, emit).await;
+    assert!(!ws.join("out.txt").exists());
+    let conv = st.db.get_conversation("conv-1").unwrap();
+    assert_eq!(conv.messages[2].tool_results[0].status, "cancelled");
+    assert_eq!(conv.messages[3].text, "Do not write the file");
+    assert_eq!(conv.messages[4].text, "Understood");
+    assert!(lock(&st.approvals).is_empty());
 }
 
 #[tokio::test]
@@ -431,6 +514,37 @@ async fn generate_image_tool_saves_and_reports_image() {
     assert!(tool_msg["content"].as_str().unwrap().contains(&r.images[0]));
     assert!(tool_msg["content"].as_str().unwrap().len() < 600);
     assert!(crate::images::data_url(&st.data_dir.join("images"), &r.images[0]).unwrap().starts_with("data:image/png;base64,"));
+}
+
+#[tokio::test]
+async fn visual_inspection_uses_approved_screenshots_and_flash() {
+    if !std::path::Path::new(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe").is_file() { return; }
+    let ws = temp_ws();
+    std::fs::write(ws.join("motion.svg"), r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><circle cx="20" cy="50" r="10"><animate attributeName="cx" from="20" to="180" dur="2s" repeatCount="indefinite"/></circle></svg>"#).unwrap();
+    let response = serde_json::json!({"choices":[{"message":{"content":"Circle moves."}}],"usage":{"prompt_tokens":123,"completion_tokens":12}}).to_string();
+    let m = mock(vec![Reply::Sse(ds_tool("inspect_visual", "{\"path\":\"motion.svg\",\"question\":\"Check movement\"}")), Reply::Status(200, response), Reply::Sse(ds_text("Reviewed", 0, 10))]).await;
+    let st = state(ProviderId::Deepseek, m.port, Some(&ws));
+    let (emit, ev) = collector();
+    let st2 = st.clone();
+    let ev2 = ev.clone();
+    tokio::spawn(async move {
+        for _ in 0..300 {
+            let id = ev2.lock().unwrap().iter().find_map(|e| match e { AgentEvent::ToolStatus { approval: Some(a), .. } => Some(a.request_id.clone()), _ => None });
+            if let Some(id) = id { let _ = respond_approval(&st2, &id, Decision::Allow); return; }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(120), run(st.clone(), params(ProviderId::Deepseek, "deepseek-v4-pro", "draw", None, Mode::Coding), Cancel::default(), emit)).await.unwrap();
+    let conv = st.db.get_conversation("conv-1").unwrap();
+    let result = &conv.messages[2].tool_results[0];
+    assert_eq!(result.status, "success", "{}", result.content);
+    assert_eq!(result.images.len(), 3);
+    assert!(result.content.contains("Circle moves."));
+    let frames: Vec<_> = result.images.iter().map(|id| std::fs::read(st.data_dir.join("images").join(id)).unwrap()).collect();
+    assert_ne!(frames[0], frames[1]);
+    let bodies = m.bodies.lock().unwrap();
+    assert_eq!(bodies[1]["model"], "deepseek-flash");
+    assert_eq!(bodies[1]["messages"][0]["content"].as_array().unwrap().len(), 4);
 }
 
 #[tokio::test]

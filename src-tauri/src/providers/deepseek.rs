@@ -58,7 +58,6 @@ pub fn build(req: &TurnRequest) -> BuiltRequest {
                 .map(|t| json!({ "type": "function", "function": { "name": t.name, "description": t.description, "parameters": t.parameters } }))
                 .collect(),
         );
-        body["tool_choice"] = json!("auto");
     }
     match req.effort {
         Some(Effort::None) => body["thinking"] = json!({ "type": "disabled" }),
@@ -119,16 +118,16 @@ impl DeepSeekDecoder {
 
 pub fn parse_usage(u: &Value) -> Usage {
     let g = |k: &str| u.get(k).and_then(|v| v.as_u64());
-    let hit = g("prompt_cache_hit_tokens").unwrap_or(0);
+    let hit = g("prompt_cache_hit_tokens");
     let miss = g("prompt_cache_miss_tokens");
     Usage {
         input_tokens: g("prompt_tokens").unwrap_or(0),
         output_tokens: g("completion_tokens").unwrap_or(0),
-        cached_input_tokens: hit,
+        cached_input_tokens: hit.unwrap_or(0),
         cache_write_tokens: None,
         reasoning_tokens: u.pointer("/completion_tokens_details/reasoning_tokens").and_then(|v| v.as_u64()),
         // Hit rate is only reported when DeepSeek gives both halves of the split.
-        eligible_input_tokens: miss.map(|m| m + hit),
+        eligible_input_tokens: hit.zip(miss).and_then(|(h, m)| h.checked_add(m)),
     }
 }
 
@@ -191,7 +190,7 @@ impl Decoder for DeepSeekDecoder {
     }
     fn partial(&self) -> TurnOutput {
         let mut o = self.output(false);
-        o.raw = Value::Null;
+        if o.text.is_empty() { o.raw = Value::Null; }
         o
     }
     fn finish(self: Box<Self>) -> Result<TurnOutput, ProviderError> {
@@ -258,7 +257,7 @@ mod tests {
         assert_eq!(b.body["thinking"]["type"], "enabled");
         assert_eq!(b.body["reasoning_effort"], "high");
         assert_eq!(b.body["stream_options"]["include_usage"], true);
-        assert_eq!(b.body["tool_choice"], "auto");
+        assert!(b.body.get("tool_choice").is_none());
     }
 
     #[test]
@@ -269,6 +268,13 @@ mod tests {
         let b = build(&r);
         assert_eq!(b.body["thinking"]["type"], "disabled");
         assert!(b.body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn cache_rate_requires_both_reported_counts() {
+        assert_eq!(parse_usage(&json!({"prompt_cache_miss_tokens": 10})).hit_rate(), None);
+        assert_eq!(parse_usage(&json!({"prompt_cache_hit_tokens": 10})).hit_rate(), None);
+        assert_eq!(parse_usage(&json!({"prompt_cache_hit_tokens": 90, "prompt_cache_miss_tokens": 10})).hit_rate(), Some(0.9));
     }
 
     #[test]

@@ -59,6 +59,8 @@ async fn turn(http: &reqwest::Client, ep: &Endpoint, p: ProviderId, caps: &regis
             Ok((o.usage, a))
         }
         Ok(TurnResult::Stopped(_)) => Err("stopped".into()),
+        Ok(TurnResult::Steered(_)) => Err("steered".into()),
+        Ok(TurnResult::Interrupted(_, e)) => Err(format!("{e}")),
         Err(e) => Err(format!("{e}")),
     }
 }

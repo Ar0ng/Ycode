@@ -7,7 +7,6 @@ import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import { MessageList, ErrorBox } from "./components/MessageList";
 import { SettingsView } from "./components/Settings";
-import { UsageLine } from "./components/UsageLine";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Logo } from "./components/Logo";
 import { TopBar } from "./components/TopBar";
@@ -65,12 +64,9 @@ function Welcome() {
 }
 
 function ChatArea() {
-  const t = useT();
   const currentId = useStore((s) => s.currentId);
   const hasMessages = useStore((s) => s.messages.length > 0);
   const loading = useStore((s) => s.loadingConversation);
-  const convUsage = useStore((s) => s.convUsage);
-  const lastUsage = useStore((s) => s.lastUsage);
   const lastError = useStore((s) => s.lastError);
   const isNew = currentId === null && !hasMessages;
 
@@ -95,12 +91,6 @@ function ChatArea() {
       {loading ? <div className="flex-1" /> : <MessageList />}
       <div className="px-6 pt-1 pb-3">
         <Composer centered={false} />
-        {(lastUsage || convUsage) && (
-          <div className="mx-auto mt-0.5 flex max-w-[800px] flex-wrap justify-center gap-x-4 text-[11px] text-faint">
-            {lastUsage && <UsageLine usage={lastUsage} label={t("usage.last")} />}
-            {convUsage && <UsageLine usage={convUsage} label={t("usage.total")} />}
-          </div>
-        )}
       </div>
     </div>
   );

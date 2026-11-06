@@ -45,6 +45,7 @@ pub fn run() {
             commands::delete_conversation,
             commands::send_message,
             commands::stop_run,
+            commands::steer_run,
             commands::respond_approval,
             commands::set_workspace,
             commands::inspect_attachment,

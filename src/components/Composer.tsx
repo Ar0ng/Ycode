@@ -9,6 +9,7 @@ import { ModelPicker } from "./ModelPicker";
 import { EffortPicker } from "./EffortPicker";
 import { ApprovalChip, ModeChip } from "./ComposerChips";
 import { WorkspacePicker } from "./TopBar";
+import { UsageSummary } from "./UsageSummary";
 
 export function Composer({ centered }: { centered: boolean }) {
   const t = useT();
@@ -18,6 +19,7 @@ export function Composer({ centered }: { centered: boolean }) {
   const providers = useStore((s) => s.providers);
   const send = useStore((s) => s.send);
   const stop = useStore((s) => s.stop);
+  const steer = useStore((s) => s.steer);
   const setEffort = useStore((s) => s.setEffort);
   const [text, setText] = useState("");
   const [atts, setAtts] = useState<Attachment[]>([]);
@@ -40,7 +42,11 @@ export function Composer({ centered }: { centered: boolean }) {
   const blocked = atts.some((a) => a.kind !== "text");
   const canSend = !running && !!hasKey && (text.trim().length > 0 || atts.length > 0) && !blocked && !!sel.model;
 
-  const submit = () => {
+  const submit = async () => {
+    if (running) {
+      if (text.trim() && atts.length === 0 && await steer(text)) setText("");
+      return;
+    }
     if (!canSend) return;
     send(text, atts);
     setText("");
@@ -102,13 +108,14 @@ export function Composer({ centered }: { centered: boolean }) {
               submit();
             }
           }}
-          placeholder={t("composer.placeholder")}
+          placeholder={t(running ? "composer.steerPlaceholder" : "composer.placeholder")}
           className="block max-h-[35vh] w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[14px] leading-relaxed outline-none placeholder:text-faint focus-visible:outline-none"
         />
         <div className="flex flex-wrap items-center gap-1 px-2.5 pb-2.5">
           <button
             type="button"
             onClick={pickFiles}
+            disabled={running}
             title={t("composer.attach")}
             className="flex h-8 w-8 items-center justify-center rounded-full bg-hover text-muted hover:bg-line hover:text-fg"
           >
@@ -121,9 +128,14 @@ export function Composer({ centered }: { centered: boolean }) {
           </div>
           <div className="ml-1">
             {running ? (
-              <button type="button" onClick={stop} title={t("composer.stop")} className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-accent-fg">
-                <Square size={12} fill="currentColor" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={submit} disabled={!text.trim() || atts.length > 0} title={t("composer.steer")} className="flex h-8 w-8 items-center justify-center rounded-full border border-line text-fg hover:bg-hover disabled:opacity-25">
+                  <ArrowUp size={16} />
+                </button>
+                <button type="button" onClick={stop} title={t("composer.stop")} className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-accent-fg">
+                  <Square size={12} fill="currentColor" />
+                </button>
+              </div>
             ) : (
               <button
                 type="button"
@@ -143,10 +155,9 @@ export function Composer({ centered }: { centered: boolean }) {
           <span className="text-warn">{t("composer.noKey", { provider: t(`provider.${sel.provider}`) })}</span>
         ) : attErr ? (
           <span className="text-danger">{attErr}</span>
-        ) : (
-          !centered && t("composer.hint")
-        )}
+        ) : null}
       </div>
+      {!centered && <UsageSummary />}
     </div>
   );
 }

@@ -83,6 +83,7 @@ interface Actions {
   send(text: string, attachments: Attachment[]): Promise<void>;
   retry(): Promise<void>;
   stop(): void;
+  steer(text: string): Promise<boolean>;
   approve(requestId: string, decision: "allow" | "allow_session" | "deny"): Promise<void>;
   patchSettings(p: Partial<Settings>): Promise<void>;
   setMode(m: Mode): void;
@@ -166,6 +167,7 @@ export const useStore = create<State & Actions>((set, get) => {
         if (e.code === "provider") {
           if (e.detail === "fallback") get().addNotice("fallback");
           else if (e.detail.startsWith("retry:")) get().addNotice("retry", e.detail.split(":")[1]);
+          else if (e.detail === "waiting_provider") get().addNotice("waiting_provider");
         } else get().addNotice(e.code, e.detail);
         break;
       }
@@ -348,6 +350,19 @@ export const useStore = create<State & Actions>((set, get) => {
     stop() {
       const id = get().currentId;
       if (id) api.stopRun(id).catch(() => {});
+    },
+
+    async steer(text) {
+      const id = get().currentId;
+      if (!id || !get().running[id]) return false;
+      try {
+        await api.steerRun(id, text);
+        get().addNotice("guidance_queued");
+        return true;
+      } catch (e) {
+        set({ lastError: e as AppError });
+        return false;
+      }
     },
 
     async approve(requestId, decision) {

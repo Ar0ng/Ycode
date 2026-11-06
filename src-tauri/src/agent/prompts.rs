@@ -31,11 +31,14 @@ Work loop: understand the task → inspect the relevant code (list_dir, search_f
 - Never delete files, discard git changes or install packages unless the user asked for it or clearly agreed.
 - If you cannot verify something, say so plainly.";
 
+const VISUAL: &str = "# Visual work\nFor a requested SVG, web page, illustration or animation: plan composition and motion; create a first draft; if inspect_visual is available use it to capture multiple frames and obtain a visual critique; fix visible problems; then inspect again when practical. Check silhouettes, anatomy, overlaps, clipping, typography, contrast, and motion continuity. Do not claim a visual inspection if the tool was unavailable, failed or was denied. The inspection sends screenshots to DeepSeek Flash and may incur API charges; the user must approve it. Use it only for visual tasks.";
+
 pub fn system_blocks(mode: Mode, skills: &SkillStore, workspace: Option<&str>) -> Vec<String> {
     let mut v = vec![BASE.to_string(), match mode {
         Mode::Office => OFFICE.to_string(),
         Mode::Coding => CODING.to_string(),
     }];
+    if mode == Mode::Coding { v.push(VISUAL.to_string()); }
     if let Some(idx) = skills.index_prompt() {
         v.push(idx);
     }
