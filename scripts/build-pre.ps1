@@ -46,12 +46,15 @@ $tmpConf = Join-Path $tmpDir "pre.conf.json"
 [IO.File]::WriteAllText($tmpConf, ($conf | ConvertTo-Json -Depth 10))
 
 $env:YCODE_CHANNEL = $Channel
+# Same switches as the 0.2.3-preview.1 build (build-preview.ps1): preview logo and separate
+# "YC_pre" API keys in Credential Manager (falls back to the stable "Ycode" keys).
+$env:VITE_INTERNAL_PREVIEW = 'true'
 Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY, Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
 
 Say "Building YC_pre $version ($Channel)"
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $ErrorActionPreference = "Continue"
-if ($Log) { npm run tauri build -- --config $tmpConf *>&1 | Out-File -FilePath $Log -Append -Encoding utf8 } else { npm run tauri build -- --config $tmpConf }
+if ($Log) { npm run tauri build -- --config $tmpConf --features internal-preview *>&1 | Out-File -FilePath $Log -Append -Encoding utf8 } else { npm run tauri build -- --config $tmpConf --features internal-preview }
 $code = $LASTEXITCODE
 $ErrorActionPreference = "Stop"
 $setup = Join-Path $root "src-tauri\target\release\bundle\nsis\YC_pre_${version}_x64-setup.exe"
