@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// GitHub repository the updater checks by default (editable in Settings › Updates).
 pub const DEFAULT_UPDATE_REPO: &str = "Ar0ng/Ycode";
@@ -46,6 +46,8 @@ const MIGRATIONS: &[&str] = &[
         created_at INTEGER NOT NULL
     );
     ALTER TABLE conversations ADD COLUMN group_id TEXT;",
+    // v2 -> v3: per-conversation model settings (provider, model, effort, mode).
+    "ALTER TABLE conversations ADD COLUMN config_json TEXT;",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -67,6 +69,9 @@ pub struct ConversationSummary {
     pub updated_at: i64,
     #[serde(default)]
     pub group_id: Option<String>,
+    /// Model settings of this chat; None for chats from before 0.2.3.
+    #[serde(default)]
+    pub config: Option<crate::model::ConvConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -278,7 +283,7 @@ impl Db {
             "INSERT INTO conversations(id,title,mode,workspace,created_at,updated_at,group_id) VALUES(?1,'',?2,?3,?4,?4,?5)",
             params![id, mode_str(mode), workspace, now, group],
         )?;
-        Ok(ConversationSummary { id: id.into(), title: String::new(), mode, workspace: workspace.map(String::from), created_at: now, updated_at: now, group_id: group })
+        Ok(ConversationSummary { id: id.into(), title: String::new(), mode, workspace: workspace.map(String::from), created_at: now, updated_at: now, group_id: group, config: None })
     }
 
     // ---------- groups ----------
@@ -336,7 +341,7 @@ impl Db {
 
     pub fn list_conversations(&self) -> AppResult<Vec<ConversationSummary>> {
         let c = self.lock();
-        let mut st = c.prepare("SELECT id,title,mode,workspace,created_at,updated_at,group_id FROM conversations ORDER BY updated_at DESC LIMIT 1000")?;
+        let mut st = c.prepare("SELECT id,title,mode,workspace,created_at,updated_at,group_id,config_json FROM conversations ORDER BY updated_at DESC LIMIT 1000")?;
         let rows = st.query_map([], row_summary)?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
@@ -344,8 +349,8 @@ impl Db {
     pub fn get_conversation(&self, id: &str) -> AppResult<Conversation> {
         let c = self.lock();
         let (summary, usage_json): (ConversationSummary, Option<String>) = c
-            .query_row("SELECT id,title,mode,workspace,created_at,updated_at,group_id,usage_json FROM conversations WHERE id=?1", params![id], |r| {
-                Ok((row_summary(r)?, r.get(7)?))
+            .query_row("SELECT id,title,mode,workspace,created_at,updated_at,group_id,config_json,usage_json FROM conversations WHERE id=?1", params![id], |r| {
+                Ok((row_summary(r)?, r.get(8)?))
             })
             .optional()?
             .ok_or_else(|| AppError::NotFound(format!("conversation {id}")))?;
@@ -381,6 +386,16 @@ impl Db {
 
     pub fn set_title(&self, id: &str, title: &str) -> AppResult<()> {
         self.lock().execute("UPDATE conversations SET title=?1 WHERE id=?2", params![title, id])?;
+        Ok(())
+    }
+
+    /// Save a chat's own model settings (mode is kept in sync with the `mode` column).
+    pub fn set_conversation_config(&self, id: &str, cfg: &crate::model::ConvConfig) -> AppResult<()> {
+        let json = serde_json::to_string(cfg)?;
+        let n = self.lock().execute("UPDATE conversations SET config_json=?1, mode=?2 WHERE id=?3", params![json, mode_str(cfg.mode), id])?;
+        if n == 0 {
+            return Err(AppError::NotFound(format!("conversation {id}")));
+        }
         Ok(())
     }
 
@@ -441,6 +456,7 @@ fn row_summary(r: &rusqlite::Row) -> rusqlite::Result<ConversationSummary> {
         created_at: r.get(4)?,
         updated_at: r.get(5)?,
         group_id: r.get(6)?,
+        config: r.get::<_, Option<String>>(7)?.and_then(|j| serde_json::from_str(&j).ok()),
     })
 }
 
@@ -565,6 +581,31 @@ mod tests {
     }
 
     #[test]
+    fn conversation_config_roundtrip_and_v2_upgrade() {
+        use crate::model::{ConvConfig, Effort, ProviderId};
+        let dir = std::env::temp_dir().join(format!("ycode-mig3-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("ycode.db");
+        {
+            // A v2 database (0.2.x) with one chat.
+            let c = Connection::open(&p).unwrap();
+            c.execute_batch(&format!("BEGIN; {} {} PRAGMA user_version = 2; COMMIT;", MIGRATIONS[0], MIGRATIONS[1])).unwrap();
+            c.execute("INSERT INTO conversations(id,title,mode,workspace,created_at,updated_at) VALUES('old','Old','coding',NULL,1,1)", []).unwrap();
+        }
+        let db = Db::open(&p).unwrap();
+        assert_eq!(db.schema_version(), 3);
+        let s = db.get_conversation("old").unwrap().summary;
+        assert_eq!((s.mode, s.config), (Mode::Coding, None), "old chats keep their mode, no config yet");
+        let cfg = ConvConfig { provider: ProviderId::Deepseek, model: "deepseek-v4-pro".into(), effort: Some(Effort::Max), mode: Mode::Coding };
+        db.set_conversation_config("old", &cfg).unwrap();
+        let listed = db.list_conversations().unwrap().into_iter().find(|c| c.id == "old").unwrap();
+        assert_eq!(listed.config, Some(cfg.clone()));
+        assert!(db.set_conversation_config("missing", &cfg).is_err());
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn migrates_v1_database_to_v2_keeping_chats() {
         let dir = std::env::temp_dir().join(format!("ycode-mig-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -577,7 +618,7 @@ mod tests {
             c.execute("INSERT INTO messages(id,conversation_id,seq,json) VALUES('m1','old',0,?1)", params![serde_json::to_string(&Message::new(Role::User)).unwrap()]).unwrap();
         }
         let db = Db::open(&p).unwrap();
-        assert_eq!(db.schema_version(), 2);
+        assert_eq!(db.schema_version(), SCHEMA_VERSION);
         assert!(db.recovery_notice.lock().unwrap().is_none());
         let c = db.get_conversation("old").unwrap();
         assert_eq!((c.summary.title.as_str(), c.messages.len(), c.summary.group_id.clone()), ("Old chat", 1, None));

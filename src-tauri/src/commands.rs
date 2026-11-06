@@ -229,6 +229,15 @@ pub fn move_conversation(st: St, id: String, group_id: Option<String>) -> AppRes
     st.db.move_conversation(&id, group_id.as_deref())
 }
 
+/// Save a chat's own model settings when they change in that chat.
+#[tauri::command]
+pub fn set_conversation_config(st: St, id: String, config: crate::model::ConvConfig) -> AppResult<()> {
+    if config.model.trim().is_empty() || config.model.len() > 128 {
+        return Err(AppError::Invalid("invalid model ID".into()));
+    }
+    st.db.set_conversation_config(&id, &config)
+}
+
 #[tauri::command]
 pub fn send_message(st: St, params: RunParams, on_event: Channel<AgentEvent>) -> AppResult<()> {
     if let Some(t) = &params.text

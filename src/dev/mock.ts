@@ -129,8 +129,17 @@ export function installMock() {
       case "update_settings":
         Object.assign(boot.settings, (args as { patch: object }).patch);
         return boot.settings;
-      case "get_conversation":
-        return { ...boot.conversations[0], messages: convo, usage: { input_tokens: 30000, output_tokens: 900, cached_input_tokens: 24000, eligible_input_tokens: 30000 } };
+      case "get_conversation": {
+        const id = (args as { id: string }).id;
+        const summary = boot.conversations.find((c) => c.id === id) ?? boot.conversations[0];
+        return { ...summary, messages: convo, usage: { input_tokens: 30000, output_tokens: 900, cached_input_tokens: 24000, eligible_input_tokens: 30000 } };
+      }
+      case "set_conversation_config": {
+        const { id, config } = args as { id: string; config: (typeof boot.conversations)[number]["config"] };
+        const c = boot.conversations.find((x) => x.id === id);
+        if (c) c.config = config;
+        return null;
+      }
       case "list_conversations":
         return boot.conversations;
       case "create_group": {

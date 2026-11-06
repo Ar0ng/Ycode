@@ -207,6 +207,25 @@ impl AttachmentKind {
     }
 }
 
+/// Model settings of one conversation (independent per chat).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConvConfig {
+    pub provider: ProviderId,
+    pub model: String,
+    #[serde(default)]
+    pub effort: Option<Effort>,
+    pub mode: Mode,
+}
+
+/// Wall-clock timing of one model call.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+pub struct Timing {
+    /// From sending the request until the first visible output (text or a tool
+    /// call): time spent thinking, including network latency.
+    pub thinking_ms: u64,
+    pub total_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Message {
     pub id: String,
@@ -242,6 +261,8 @@ pub struct Message {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<serde_json::Value>,
     pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timing: Option<Timing>,
 }
 
 fn default_status() -> String {
@@ -268,6 +289,7 @@ impl Message {
             status: default_status(),
             error: None,
             created_at: now_ms(),
+            timing: None,
         }
     }
 

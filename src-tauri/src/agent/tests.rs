@@ -636,3 +636,17 @@ fn request_history_repairs_calls_without_any_result() {
     // Deterministic, so the cached prefix stays stable across requests.
     assert_eq!(request_history(&[a.clone()]), request_history(&[a]));
 }
+
+
+#[tokio::test]
+async fn chat_saves_its_own_model_config_and_turn_timing() {
+    let m = mock(vec![Reply::Sse(ds_text("Hi", 0, 10))]).await;
+    let st = state(ProviderId::Deepseek, m.port, None);
+    let (emit, _ev) = collector();
+    run(st.clone(), params(ProviderId::Deepseek, "deepseek-v4-pro", "hello", Some(Effort::Max), Mode::Coding), Cancel::default(), emit).await;
+    let conv = st.db.get_conversation("conv-1").unwrap();
+    let cfg = conv.summary.config.expect("config saved");
+    assert_eq!((cfg.provider, cfg.model.as_str(), cfg.effort, cfg.mode), (ProviderId::Deepseek, "deepseek-v4-pro", Some(Effort::Max), Mode::Coding));
+    let t = conv.messages[1].timing.expect("timing recorded");
+    assert!(t.thinking_ms >= 1 && t.thinking_ms <= t.total_ms, "{t:?}");
+}

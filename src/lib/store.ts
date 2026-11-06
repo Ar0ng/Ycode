@@ -7,6 +7,7 @@ import type {
   AppError,
   ApprovalPrompt,
   Attachment,
+  ConvConfig,
   ConversationGroup,
   ConversationSummary,
   Effort,
@@ -187,14 +188,16 @@ export const useStore = create<State & Actions>((set, get) => {
     }
   };
 
-  const currentSelection = () => {
+  const currentConfig = (): ConvConfig | null => {
     const s = get();
-    const st = s.settings!;
-    const provider = st.provider;
-    const model = st.models[provider] ?? defaultModel(s.models, provider, st.mode) ?? "";
-    const caps = findCaps(s.models, provider, model);
-    const effort = clampEffort(caps, st.efforts[effortKey(provider, model)]);
-    return { provider, model, caps, effort, mode: st.mode };
+    return s.currentId ? (s.conversations.find((c) => c.id === s.currentId)?.config ?? null) : null;
+  };
+  const currentSelection = () => resolveSelection(get().settings!, get().models, currentConfig());
+
+  /** Save a chat's own settings (memory + DB); a chat not yet in the DB is skipped. */
+  const setConvConfig = (id: string, config: ConvConfig) => {
+    set((s) => ({ conversations: s.conversations.map((c) => (c.id === id ? { ...c, config } : c)) }));
+    api.setConversationConfig(id, config).catch(() => {});
   };
 
   const run = async (convId: string, text: string | null, attachments: Attachment[]) => {
@@ -309,15 +312,20 @@ export const useStore = create<State & Actions>((set, get) => {
     },
 
     async openChat(id) {
-      // The mode switch is hidden inside a chat, so follow the chat's own mode.
-      const summary = get().conversations.find((c) => c.id === id);
-      if (summary && get().settings && summary.mode !== get().settings!.mode) get().patchSettings({ mode: summary.mode });
+      // Each chat keeps its own mode/model; opening one never changes the
+      // defaults used for new chats.
       set({ view: "chat", currentId: id, draftGroupId: null, loadingConversation: true, messages: [], tools: {}, lastError: null, lastUsage: null });
       try {
         const c = await api.getConversation(id);
         if (get().currentId !== id) return;
         const lastAssistant = [...c.messages].reverse().find((m) => m.role === "assistant" && m.usage);
         const err = c.messages.length && c.messages[c.messages.length - 1].status === "error" ? (c.messages[c.messages.length - 1].error ?? null) : null;
+        const known = get().conversations.find((x) => x.id === id)?.config ?? null;
+        if (c.config || !known) {
+          // Saved config wins; chats from before 0.2.3 derive theirs from the last reply.
+          const cfg = c.config ?? deriveConfig(c.messages, c.mode, get().settings!, get().models);
+          set((s) => ({ conversations: s.conversations.map((x) => (x.id === id ? { ...x, config: cfg } : x)) }));
+        }
         set({ messages: c.messages, convUsage: c.usage ?? null, lastUsage: lastAssistant?.usage ?? null, loadingConversation: false, lastError: err });
       } catch (e) {
         set({ loadingConversation: false, lastError: e as AppError });
@@ -338,7 +346,22 @@ export const useStore = create<State & Actions>((set, get) => {
         const now = Date.now();
         set((st) => ({
           currentId: convId,
-          conversations: [{ id: convId!, title: "", mode: st.settings!.mode, created_at: now, updated_at: now, workspace: st.settings!.workspace, group_id: st.draftGroupId }, ...st.conversations],
+          conversations: [
+            {
+              id: convId!,
+              title: "",
+              mode: st.settings!.mode,
+              created_at: now,
+              updated_at: now,
+              workspace: st.settings!.workspace,
+              group_id: st.draftGroupId,
+              config: (() => {
+                const sel = resolveSelection(st.settings!, st.models, null);
+                return { provider: sel.provider, model: sel.model, effort: sel.effort, mode: sel.mode };
+              })(),
+            },
+            ...st.conversations,
+          ],
         }));
       }
       await run(convId, text, attachments);
@@ -390,17 +413,31 @@ export const useStore = create<State & Actions>((set, get) => {
     },
 
     setMode(mode) {
-      get().patchSettings({ mode });
+      const id = get().currentId;
+      const cfg = currentConfig();
+      if (id && cfg) setConvConfig(id, { ...cfg, mode });
+      get().patchSettings({ mode }); // also the default for new chats
     },
 
     selectModel(provider, model) {
       const st = get().settings!;
+      const id = get().currentId;
+      const cfg = currentConfig();
+      if (id && cfg) {
+        // Only this chat changes; the new model keeps its remembered effort.
+        const caps = findCaps(get().models, provider, model);
+        setConvConfig(id, { ...cfg, provider, model, effort: clampEffort(caps, st.efforts[effortKey(provider, model)] ?? cfg.effort) });
+      }
+      // Last used model = default for new chats.
       get().patchSettings({ provider, models: { ...st.models, [provider]: model } });
     },
 
     setEffort(e) {
       const { provider, model } = currentSelection();
       const st = get().settings!;
+      const id = get().currentId;
+      const cfg = currentConfig();
+      if (id && cfg) setConvConfig(id, { ...cfg, effort: e });
       get().patchSettings({ efforts: { ...st.efforts, [effortKey(provider, model)]: e } });
     },
 
@@ -467,13 +504,35 @@ export const useStore = create<State & Actions>((set, get) => {
   };
 });
 
-export function useSelection() {
-  const settings = useStore((s) => s.settings);
-  const models = useStore((s) => s.models);
-  if (!settings) return null;
+/**
+ * The model settings in effect: the open chat's own config, or (new chat) the
+ * last-used defaults from settings.
+ */
+export function resolveSelection(settings: Settings, models: ModelCaps[], config: ConvConfig | null) {
+  if (config) {
+    const caps = findCaps(models, config.provider, config.model);
+    const effort = clampEffort(caps, config.effort ?? settings.efforts[effortKey(config.provider, config.model)]);
+    return { provider: config.provider, model: config.model, caps, effort, mode: config.mode };
+  }
   const provider = settings.provider;
   const model = settings.models[provider] ?? defaultModel(models, provider, settings.mode) ?? "";
   const caps = findCaps(models, provider, model);
   const effort = clampEffort(caps, settings.efforts[effortKey(provider, model)]);
   return { provider, model, caps, effort, mode: settings.mode };
+}
+
+/** Settings for a chat saved before per-chat configs existed. */
+export function deriveConfig(messages: Message[], mode: Mode, settings: Settings, models: ModelCaps[]): ConvConfig {
+  const last = [...messages].reverse().find((m) => m.role === "assistant" && m.provider && m.model);
+  if (last) return { provider: last.provider!, model: last.model!, effort: last.effort ?? null, mode };
+  const d = resolveSelection(settings, models, null);
+  return { provider: d.provider, model: d.model, effort: d.effort, mode };
+}
+
+export function useSelection() {
+  const settings = useStore((s) => s.settings);
+  const models = useStore((s) => s.models);
+  const config = useStore((s) => (s.currentId ? (s.conversations.find((c) => c.id === s.currentId)?.config ?? null) : null));
+  if (!settings) return null;
+  return resolveSelection(settings, models, config);
 }

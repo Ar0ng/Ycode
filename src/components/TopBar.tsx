@@ -1,6 +1,6 @@
 import { ChevronDown, Folder, FolderOpen, X } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { useStore } from "../lib/store";
+import { useSelection, useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
 import type { Mode } from "../lib/types";
 import { Menu, MenuItem, useDropdown } from "./Popover";
@@ -111,7 +111,7 @@ export function WorkspacePicker({ plain = false }: { plain?: boolean }) {
 /** Header of the main area: mode switch (new chat only) and workspace folder. */
 export function TopBar({ isNew }: { isNew: boolean }) {
   const title = useStore((s) => (s.currentId ? s.conversations.find((c) => c.id === s.currentId)?.title : undefined));
-  const mode = useStore((s) => s.settings?.mode ?? "office");
+  const mode = useSelection()?.mode ?? "office";
   const t = useT();
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 px-4">

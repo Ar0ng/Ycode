@@ -4,6 +4,7 @@ import type {
   Attachment,
   Bootstrap,
   Conversation,
+  ConvConfig,
   ConversationGroup,
   ConversationSummary,
   Effort,
@@ -69,6 +70,7 @@ export const api = {
   setGroupCollapsed: (id: string, collapsed: boolean) => invoke<void>("set_group_collapsed", { id, collapsed }),
   deleteGroup: (id: string) => invoke<void>("delete_group", { id }),
   moveConversation: (id: string, groupId: string | null) => invoke<void>("move_conversation", { id, groupId }),
+  setConversationConfig: (id: string, config: ConvConfig) => invoke<void>("set_conversation_config", { id, config }),
   readImage: (id: string) => invoke<string>("read_image", { id }),
   saveImageAs: (id: string, dest: string) => invoke<void>("save_image_as", { id, dest }),
 };

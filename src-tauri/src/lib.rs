@@ -66,6 +66,7 @@ pub fn run() {
             commands::set_group_collapsed,
             commands::delete_group,
             commands::move_conversation,
+            commands::set_conversation_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Ycode");

@@ -256,6 +256,11 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
         Err(e) => return Err(e),
     };
     state.db.set_conversation_meta(&p.conversation_id, p.mode, workspace.as_deref())?;
+    // Remember this chat's own model settings (independent from other chats).
+    state.db.set_conversation_config(
+        &p.conversation_id,
+        &ConvConfig { provider: p.provider, model: caps.id.clone(), effort: clamp_effort(&caps, p.effort), mode: p.mode },
+    )?;
 
     // Effort planning (may append an in-band change record before the new user turn).
     let (request_effort, control) = plan_effort(&messages, p.provider, &caps, p.effort);
@@ -371,15 +376,33 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
         emit(AgentEvent::Message { message: a.clone() });
         let aid = a.id.clone();
         let emit2 = emit.clone();
+        // Thinking time = until the first visible output (text or a tool call).
+        let started = std::time::Instant::now();
+        let first_output = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let fo = first_output.clone();
+        let mark = move || {
+            let ms = (started.elapsed().as_millis() as u64).max(1);
+            let _ = fo.compare_exchange(0, ms, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst);
+        };
         let mut on = move |ev: StreamEvent| match ev {
-            StreamEvent::Text { delta } => emit2(AgentEvent::Delta { message_id: aid.clone(), kind: "text", text: delta }),
+            StreamEvent::Text { delta } => {
+                mark();
+                emit2(AgentEvent::Delta { message_id: aid.clone(), kind: "text", text: delta })
+            }
             StreamEvent::Reasoning { delta } => emit2(AgentEvent::Delta { message_id: aid.clone(), kind: "reasoning", text: delta }),
             StreamEvent::ToolStart { id, name } => {
+                mark();
                 emit2(AgentEvent::ToolStatus { message_id: aid.clone(), call_id: id, name, status: "pending".into(), approval: None })
             }
             StreamEvent::Notice { message } => emit2(AgentEvent::Notice { code: "provider".into(), detail: message }),
         };
         let res = providers::run_turn(&state.http, &endpoint, &req, cancel, &mut on).await;
+        let total_ms = started.elapsed().as_millis() as u64;
+        let thinking_ms = match first_output.load(std::sync::atomic::Ordering::SeqCst) {
+            0 => total_ms,
+            ms => ms,
+        };
+        a.timing = Some(Timing { thinking_ms, total_ms });
         let out = match res {
             Ok(TurnResult::Done(o)) => o,
             Ok(TurnResult::Stopped(o)) => {

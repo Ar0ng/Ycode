@@ -7,6 +7,10 @@ import type { ModelCaps } from "./types";
 import { isHidden, isLegacy } from "./models";
 import { displayVersion } from "./format";
 import { pickGreeting, timeOfDay } from "./greeting";
+import { deriveConfig, resolveSelection } from "./store";
+import { roundStats } from "./stats";
+import { formatDuration } from "./useNow";
+import type { Message, Settings } from "./types";
 
 const caps = (over: Partial<ModelCaps>): ModelCaps => ({
   provider: "deepseek",
@@ -101,6 +105,45 @@ describe("greeting", () => {
     // No name and no folder: only the generic question.
     expect(pickGreeting({ lang: "zh-CN", name: " ", workspace: null, now: at(20), random: 0.99 })).toBe("今天想做点什么？");
     expect(pickGreeting({ lang: "en-US", name: "Ar0ng", workspace: null, now: at(20), random: 0.99 })).toBe("Good evening, Ar0ng");
+  });
+});
+
+describe("per-chat model settings", () => {
+  const settings = {
+    provider: "anthropic", mode: "office", models: { anthropic: "claude-x", deepseek: "deepseek-flash" },
+    efforts: { "deepseek:deepseek-flash": "max" },
+  } as unknown as Settings;
+  const models = [caps({}), caps({ provider: "anthropic", id: "claude-x", efforts: ["low", "medium", "high"], default_effort: "medium" })];
+  it("an open chat uses its own config, a new chat the last-used defaults", () => {
+    const chat = resolveSelection(settings, models, { provider: "deepseek", model: "deepseek-flash", effort: "low", mode: "coding" });
+    expect([chat.provider, chat.model, chat.effort, chat.mode]).toEqual(["deepseek", "deepseek-flash", "low", "coding"]);
+    const fresh = resolveSelection(settings, models, null);
+    expect([fresh.provider, fresh.model, fresh.effort, fresh.mode]).toEqual(["anthropic", "claude-x", "medium", "office"]);
+  });
+  it("falls back to the model's remembered effort and never returns an unsupported level", () => {
+    expect(resolveSelection(settings, models, { provider: "deepseek", model: "deepseek-flash", effort: null, mode: "office" }).effort).toBe("max");
+    expect(resolveSelection(settings, models, { provider: "deepseek", model: "deepseek-flash", effort: "medium", mode: "office" }).effort).toBe("high");
+  });
+  it("derives settings for chats saved before per-chat configs", () => {
+    const msgs = [
+      { id: "1", role: "user", text: "a", status: "complete", created_at: 1 },
+      { id: "2", role: "assistant", text: "b", status: "complete", created_at: 2, provider: "deepseek", model: "deepseek-v4-pro", effort: "high" },
+    ] as Message[];
+    expect(deriveConfig(msgs, "coding", settings, models)).toEqual({ provider: "deepseek", model: "deepseek-v4-pro", effort: "high", mode: "coding" });
+    expect(deriveConfig([], "coding", settings, models).mode).toBe("coding");
+  });
+});
+
+describe("round stats and durations", () => {
+  it("counts rounds, steps and thinking time of the latest round", () => {
+    const m = (role: string, extra: object = {}) => ({ id: Math.random().toString(), role, text: "", status: "complete", created_at: 1000, ...extra }) as Message;
+    const msgs = [m("user"), m("assistant", { timing: { thinking_ms: 5000, total_ms: 6000 } }), m("user", { created_at: 9000 }),
+      m("assistant", { timing: { thinking_ms: 1200, total_ms: 2000 } }), m("tool"), m("assistant", { timing: { thinking_ms: 800, total_ms: 900 } }), m("assistant", { status: "error" })];
+    expect(roundStats(msgs)).toEqual({ round: 2, steps: 2, thinkingMs: 2000, startedAt: 9000 });
+    expect(roundStats([])).toBeNull();
+  });
+  it("formats durations", () => {
+    expect([formatDuration(950), formatDuration(12345), formatDuration(125000)]).toEqual(["0.9s", "12.3s", "2m 05s"]);
   });
 });
 

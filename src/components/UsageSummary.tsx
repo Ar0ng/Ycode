@@ -5,6 +5,8 @@ import { useT } from "../lib/i18n";
 import type { Usage } from "../lib/types";
 import { Menu, useDropdown } from "./Popover";
 import { fmt, hitRate } from "./UsageLine";
+import { roundStats } from "../lib/stats";
+import { formatDuration, useNow } from "../lib/useNow";
 
 export function contextEstimate(usage: Usage | null, window: number | undefined) {
   if (!usage || !window || window <= 0) return null;
@@ -24,6 +26,10 @@ export function UsageSummary() {
   const context = contextEstimate(matching ? last : null, window);
   const rate = last ? hitRate(last) : null;
   const deepseek = useMemo(() => messages.filter((m) => m.role === "assistant" && m.provider === "deepseek" && m.usage).slice(-5).reverse(), [messages]);
+  const running = useStore((s) => (s.currentId ? !!s.running[s.currentId] : false));
+  const now = useNow(running, 200);
+  const stats = useMemo(() => roundStats(messages), [messages]);
+  const elapsed = stats && running ? formatDuration(now - stats.startedAt) : null;
   const { open, setOpen, ref } = useDropdown();
   const row = (label: string, value: string) => <div className="flex justify-between gap-6"><span className="text-muted">{label}</span><span className="tabular-nums text-fg">{value}</span></div>;
   const n = (value: number | null | undefined) => value == null ? t("usage.na") : fmt(value);
@@ -31,6 +37,7 @@ export function UsageSummary() {
     <div ref={ref} className="relative mx-auto mt-1.5 flex max-w-[800px] justify-center">
       <button type="button" aria-expanded={open} aria-label={t("usage.details")} onClick={() => setOpen((v) => !v)} className="flex flex-wrap items-center justify-center gap-x-2 rounded-md px-2 py-1 text-[11px] text-faint hover:bg-hover hover:text-muted">
         <BarChart3 size={12} />
+        {stats && <span className="tabular-nums">{t("stats.round", { n: stats.round })} · {t("stats.steps", { n: stats.steps })}{stats.thinkingMs > 0 && ` · ${t("stats.thinking", { s: formatDuration(stats.thinkingMs) })}`}{elapsed && ` · ${t("stats.elapsed", { s: elapsed })}`} ·</span>}
         <span>{t("usage.context")} {context ? `≈${fmt(context.remaining)}` : t("usage.na")}</span>
         <span>· {t("usage.out")} {n(last?.output_tokens)}</span>
         <span>· {t("usage.hit")} {rate == null ? t("usage.na") : `${Math.round(rate * 100)}%`}</span>
@@ -39,6 +46,7 @@ export function UsageSummary() {
       {open && (
         <Menu up className="left-1/2 max-h-[70vh] w-72 -translate-x-1/2 overflow-y-auto p-3 text-xs">
           <div className="mb-2 font-medium text-fg">{t("usage.details")}</div>
+          {stats && <div className="mb-2 space-y-1.5 border-b border-line pb-2">{row(t("stats.roundLabel"), String(stats.round))}{row(t("stats.stepsLabel"), String(stats.steps))}{row(t("stats.thinkingLabel"), stats.thinkingMs > 0 ? formatDuration(stats.thinkingMs) : t("usage.na"))}{elapsed && row(t("stats.elapsedLabel"), elapsed)}</div>}
           <div className="space-y-1.5">
             {row(t("usage.context"), context ? `≈${n(context.remaining)}` : t("usage.na"))}
             {row(t("usage.used"), context ? `≈${n(context.used)}` : t("usage.na"))}

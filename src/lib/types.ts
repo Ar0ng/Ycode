@@ -66,6 +66,7 @@ export interface Message {
   status: string;
   error?: AppError;
   created_at: number;
+  timing?: Timing | null;
 }
 
 export interface ConversationSummary {
@@ -76,6 +77,20 @@ export interface ConversationSummary {
   created_at: number;
   updated_at: number;
   group_id?: string | null;
+  /** This chat's own model settings (absent for chats from before 0.2.3). */
+  config?: ConvConfig | null;
+}
+
+export interface ConvConfig {
+  provider: ProviderId;
+  model: string;
+  effort?: Effort | null;
+  mode: Mode;
+}
+
+export interface Timing {
+  thinking_ms: number;
+  total_ms: number;
 }
 
 export interface ConversationGroup {

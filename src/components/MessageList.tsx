@@ -1,6 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ChevronRight, FileText, RotateCw } from "lucide-react";
 import { useStore } from "../lib/store";
+import { formatDuration, useNow } from "../lib/useNow";
 import { useT } from "../lib/i18n";
 import type { AppError, Message, ToolResult } from "../lib/types";
 import { CopyButton, Markdown } from "./Markdown";
@@ -9,14 +10,14 @@ import { UsageLine } from "./UsageLine";
 
 const PAGE = 60;
 
-function Reasoning({ text, live }: { text: string; live: boolean }) {
+function Reasoning({ text, live, seconds }: { text: string; live: boolean; seconds: string | null }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <div className="mb-1.5">
       <button type="button" onClick={() => setOpen((o) => !o)} className="flex items-center gap-1 text-xs text-faint hover:text-muted">
         <ChevronRight size={13} className={`transition-transform ${open ? "rotate-90" : ""}`} />
-        {live ? t("chat.thinking") : t("chat.reasoning")}
+        {live ? t("chat.thinkingLive", { s: seconds ?? "" }) : seconds ? t("chat.thoughtFor", { s: seconds }) : t("chat.reasoning")}
         {live && <span className="pulse-dot ml-1 inline-block h-1 w-1 rounded-full bg-faint" />}
       </button>
       {open && <div className="mt-1 border-l-2 border-line pl-3 text-[13px] whitespace-pre-wrap text-muted">{text}</div>}
@@ -80,13 +81,21 @@ const UserBubble = memo(function UserBubble({ m }: { m: Message }) {
 function AssistantBlock({ m, results, live }: { m: Message; results: Map<string, ToolResult>; live: boolean }) {
   const t = useT();
   const streaming = m.status === "streaming";
+  const thinkingNow = streaming && !m.text;
+  const now = useNow(thinkingNow);
+  // While streaming: live seconds since the request started, frozen when the
+  // first text arrives; afterwards the backend's exact measurement.
+  const frozen = useRef<number | null>(null);
+  if (streaming && m.text && frozen.current === null) frozen.current = Date.now() - m.created_at;
+  const thinkingMs = m.timing?.thinking_ms ?? (streaming ? (frozen.current ?? now - m.created_at) : null);
+  const seconds = thinkingMs != null ? formatDuration(thinkingMs) : null;
   return (
     <div className="msg py-2">
-      {m.reasoning && <Reasoning text={m.reasoning} live={streaming && !m.text} />}
-      {streaming && !m.text && !m.reasoning && !(m.tool_calls?.length) && (
+      {m.reasoning && <Reasoning text={m.reasoning} live={thinkingNow} seconds={seconds} />}
+      {thinkingNow && !m.reasoning && !(m.tool_calls?.length) && (
         <div className="flex items-center gap-1.5 text-xs text-faint">
           <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-faint" />
-          {t("chat.generating")}
+          {t("chat.thinkingLive", { s: seconds ?? "" })}
         </div>
       )}
       {m.text && <Markdown text={m.text} />}
@@ -95,6 +104,7 @@ function AssistantBlock({ m, results, live }: { m: Message; results: Map<string,
         <div className="mt-1 flex items-center gap-2 text-[11px] text-faint">
           {m.status === "partial" && <span>{t("chat.stopped")}</span>}
           {m.text && <CopyButton text={m.text} className="-ml-1.5" />}
+          {m.timing && !live && <span className="tabular-nums">{t("stats.thinking", { s: formatDuration(m.timing.thinking_ms) })}</span>}
           {m.usage && !live && <UsageLine usage={m.usage} compact />}
         </div>
       )}
