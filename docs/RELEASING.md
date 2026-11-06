@@ -74,6 +74,11 @@ pre-releases are not offered to users.
   Windows Credential Manager; neither is touched by the installer or uninstaller
   (the NSIS uninstaller only removes app data if the user ticks that option).
 - A failed download or signature check leaves the installed version untouched.
+- Windows in-app updates target the folder of the running executable, including a
+  custom install location. The folder must contain `uninstall.exe`; development
+  and portable copies should use a manual install instead. The updater only accepts
+  signed NSIS `.exe` update packages. Older installed versions must first receive
+  this updater fix before their later updates can preserve the running path.
 
 ## Local signed build
 

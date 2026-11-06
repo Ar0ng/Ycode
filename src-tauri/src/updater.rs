@@ -7,6 +7,20 @@ use serde::Serialize;
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_updater::UpdaterExt;
 
+/// NSIS requires /D to be the final argument, unquoted even when it contains spaces.
+/// Only target an existing NSIS installation, never a development or portable build.
+#[cfg(windows)]
+fn nsis_install_dir_arg(exe: &std::path::Path) -> AppResult<std::ffi::OsString> {
+    let dir = exe.parent().filter(|p| p.is_absolute() && p.parent().is_some())
+        .ok_or_else(|| AppError::Update("Cannot determine the current Ycode installation folder.".into()))?;
+    if !dir.join("uninstall.exe").is_file() {
+        return Err(AppError::Update("Cannot update this copy automatically: its installation folder has no uninstaller. Run the installer and select the existing Ycode folder.".into()));
+    }
+    let mut arg = std::ffi::OsString::from("/D=");
+    arg.push(dir.as_os_str());
+    Ok(arg)
+}
+
 #[derive(Debug, Serialize)]
 pub struct UpdateInfo {
     pub available: bool,
@@ -29,18 +43,22 @@ pub fn endpoint_for(repo: &str) -> AppResult<tauri::Url> {
     tauri::Url::parse(&format!("https://github.com/{repo}/releases/latest/download/latest.json")).map_err(|e| AppError::Update(e.to_string()))
 }
 
-fn updater<R: Runtime>(app: &AppHandle<R>, repo: &str) -> AppResult<tauri_plugin_updater::Updater> {
-    app.updater_builder()
+fn updater<R: Runtime>(app: &AppHandle<R>, repo: &str, install_dir_arg: Option<std::ffi::OsString>) -> AppResult<tauri_plugin_updater::Updater> {
+    let mut builder = app.updater_builder()
         .endpoints(vec![endpoint_for(repo)?])
         .map_err(|e| AppError::Update(e.to_string()))?
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
+        .timeout(std::time::Duration::from_secs(30));
+    if let Some(arg) = install_dir_arg {
+        // The updater appends additional installer arguments after its own arguments.
+        builder = builder.clear_installer_args().installer_arg(arg);
+    }
+    builder.build()
         .map_err(|e| AppError::Update(e.to_string()))
 }
 
 pub async fn check<R: Runtime>(app: &AppHandle<R>, repo: &str) -> AppResult<UpdateInfo> {
     let current = app.package_info().version.to_string();
-    let u = updater(app, repo)?.check().await.map_err(|e| AppError::Update(e.to_string()))?;
+    let u = updater(app, repo, None)?.check().await.map_err(|e| AppError::Update(e.to_string()))?;
     Ok(match u {
         Some(u) => UpdateInfo { available: true, current_version: current, version: Some(u.version.clone()), notes: u.body.clone(), date: u.date.map(|d| d.to_string()) },
         None => UpdateInfo { available: false, current_version: current, version: None, notes: None, date: None },
@@ -50,7 +68,15 @@ pub async fn check<R: Runtime>(app: &AppHandle<R>, repo: &str) -> AppResult<Upda
 /// Download, verify the minisign signature (inside the plugin) and run the
 /// installer. On Windows the installer closes the app and relaunches it.
 pub async fn install<R: Runtime>(app: &AppHandle<R>, repo: &str, mut progress: impl FnMut(u64, Option<u64>)) -> AppResult<()> {
-    let u = updater(app, repo)?.check().await.map_err(|e| AppError::Update(e.to_string()))?.ok_or_else(|| AppError::Update("no update available".into()))?;
+    #[cfg(windows)]
+    let install_dir_arg = Some(nsis_install_dir_arg(&std::env::current_exe().map_err(|e| AppError::Update(format!("Cannot locate the running Ycode executable: {e}")))?)?);
+    #[cfg(not(windows))]
+    let install_dir_arg = None;
+    let u = updater(app, repo, install_dir_arg)?.check().await.map_err(|e| AppError::Update(e.to_string()))?.ok_or_else(|| AppError::Update("no update available".into()))?;
+    #[cfg(windows)]
+    if !u.download_url.path().to_ascii_lowercase().ends_with(".exe") {
+        return Err(AppError::Update("This installation requires a signed NSIS .exe update package.".into()));
+    }
     let mut done: u64 = 0;
     u.download_and_install(
         |chunk, total| {
@@ -74,5 +100,20 @@ mod tests {
         assert!(endpoint_for("acme/ycode/extra").is_err());
         assert!(endpoint_for("ac me/y").is_err());
         assert!(endpoint_for("../x").is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn nsis_update_targets_running_installation_with_spaces() {
+        let dir = std::env::temp_dir().join(format!("Ycode update test {}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("Ycode.exe");
+        assert!(nsis_install_dir_arg(&exe).is_err(), "uninstalled copies must not be overwritten");
+        std::fs::write(dir.join("uninstall.exe"), b"").unwrap();
+        let arg = nsis_install_dir_arg(&exe).unwrap();
+        let mut expected = std::ffi::OsString::from("/D=");
+        expected.push(dir.as_os_str());
+        assert_eq!(arg, expected);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
