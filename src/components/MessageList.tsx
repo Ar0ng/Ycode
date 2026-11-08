@@ -7,23 +7,9 @@ import type { AppError, Message, ToolResult } from "../lib/types";
 import { CopyButton, Markdown } from "./Markdown";
 import { ToolCard } from "./ToolCard";
 import { UsageLine } from "./UsageLine";
+import { displayTurns, type DisplayTurn } from "../lib/turns";
 
 const PAGE = 60;
-
-function Reasoning({ text, live, seconds }: { text: string; live: boolean; seconds: string | null }) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="mb-1.5">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="flex items-center gap-1 text-xs text-faint hover:text-muted">
-        <ChevronRight size={13} className={`transition-transform ${open ? "rotate-90" : ""}`} />
-        {live ? t("chat.thinkingLive", { s: seconds ?? "" }) : seconds ? t("chat.thoughtFor", { s: seconds }) : t("chat.reasoning")}
-        {live && <span className="pulse-dot ml-1 inline-block h-1 w-1 rounded-full bg-faint" />}
-      </button>
-      {open && <div className="mt-1 border-l-2 border-line pl-3 text-[13px] whitespace-pre-wrap text-muted">{text}</div>}
-    </div>
-  );
-}
 
 export function ErrorBox({ error, onRetry }: { error: AppError; onRetry?: () => void }) {
   const t = useT();
@@ -78,37 +64,41 @@ const UserBubble = memo(function UserBubble({ m }: { m: Message }) {
   );
 });
 
-function AssistantBlock({ m, results, live }: { m: Message; results: Map<string, ToolResult>; live: boolean }) {
+function TurnBlock({ turn, results, live }: { turn: DisplayTurn; results: Map<string, ToolResult>; live: boolean }) {
   const t = useT();
-  const streaming = m.status === "streaming";
-  const thinkingNow = streaming && !m.text;
-  const now = useNow(thinkingNow);
-  // While streaming: live seconds since the request started, frozen when the
-  // first text arrives; afterwards the backend's exact measurement.
-  const frozen = useRef<number | null>(null);
-  if (streaming && m.text && frozen.current === null) frozen.current = Date.now() - m.created_at;
-  const thinkingMs = m.timing?.thinking_ms ?? (streaming ? (frozen.current ?? now - m.created_at) : null);
-  const seconds = thinkingMs != null ? formatDuration(thinkingMs) : null;
+  const minimal = useStore((s) => (s.settings?.activity_display ?? "minimal") === "minimal");
+  const [open, setOpen] = useState(false);
+  const now = useNow(live, 1000);
+  const assistants = turn.assistants;
+  const last = assistants[assistants.length - 1];
+  const final = last && !last.tool_calls?.length && last.text ? last : undefined;
+  const started = assistants.find((m) => m.run_started_at != null)?.run_started_at ?? turn.user?.run_started_at;
+  const duration = [...assistants].reverse().find((m) => m.run_duration_ms != null)?.run_duration_ms;
+  const seconds = live && started != null ? formatDuration(now - started) : duration != null ? formatDuration(duration) : null;
+  const hasActivity = live || assistants.some((m) => m.reasoning || m.tool_calls?.length || m.timing || m.run_duration_ms != null);
   return (
-    <div className="msg py-2">
-      {m.reasoning && <Reasoning text={m.reasoning} live={thinkingNow} seconds={seconds} />}
-      {thinkingNow && !m.reasoning && !(m.tool_calls?.length) && (
-        <div className="flex items-center gap-1.5 text-xs text-faint">
-          <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-faint" />
-          {t("chat.thinkingLive", { s: seconds ?? "" })}
-        </div>
-      )}
-      {m.text && <Markdown text={m.text} />}
-      {m.tool_calls?.map((c) => <ToolCard key={c.id} call={c} result={results.get(c.id)} />)}
-      {!streaming && (m.text || m.status === "partial") && (
+    <>
+      {turn.user && <UserBubble m={turn.user} />}
+      {hasActivity && <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="msg mt-2 mb-1 flex w-full items-center gap-1 border-b border-line pb-2 text-left text-xs text-faint hover:text-muted">
+        {live ? t("chat.thinkingLive", { s: seconds ?? "" }) : seconds ? t("chat.elapsed", { s: seconds }) : t("chat.reasoning")}
+        <ChevronRight size={13} className={`transition-transform ${open ? "rotate-90" : ""}`} />
+        {live && <span className="pulse-dot ml-1 inline-block h-1 w-1 rounded-full bg-faint" />}
+      </button>}
+      {assistants.map((m) => <div key={m.id}>
+        {open && m.reasoning && <div className="mt-1 border-l-2 border-line pl-3 text-[13px] whitespace-pre-wrap text-muted">{m.reasoning}</div>}
+        {(open || !minimal) && m !== final && m.text && <div className="msg py-1"><Markdown text={m.text} /></div>}
+        {m.tool_calls?.map((c) => <ToolCard key={c.id} call={c} result={results.get(c.id)} compact={minimal} expanded={open} />)}
+      </div>)}
+      {turn.guidance.map((m) => <UserBubble key={m.id} m={m} />)}
+      {final && <div className="msg py-2"><Markdown text={final.text} /></div>}
+      {last && last.status !== "streaming" && (final || last.status === "partial") && (
         <div className="mt-1 flex items-center gap-2 text-[11px] text-faint">
-          {m.status === "partial" && <span>{t("chat.stopped")}</span>}
-          {m.text && <CopyButton text={m.text} className="-ml-1.5" />}
-          {m.timing && !live && <span className="tabular-nums">{t("stats.thinking", { s: formatDuration(m.timing.thinking_ms) })}</span>}
-          {m.usage && !live && <UsageLine usage={m.usage} compact />}
+          {last.status === "partial" && <span>{t("chat.stopped")}</span>}
+          {final && <CopyButton text={final.text} className="-ml-1.5" />}
+          {last.usage && !live && <UsageLine usage={last.usage} compact />}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -129,7 +119,7 @@ export function MessageList() {
     return map;
   }, [messages]);
 
-  const visible = messages.filter((m) => m.role !== "tool" && !(m.role === "assistant" && m.status === "error" && !m.text && !m.reasoning));
+  const visible = useMemo(() => displayTurns(messages), [messages]);
   const hidden = Math.max(0, visible.length - limit);
   const shown = visible.slice(hidden);
 
@@ -160,15 +150,14 @@ export function MessageList() {
               {t("chat.showEarlier", { n: hidden })}
             </button>
           )}
-          {shown.map((m, i) => {
-            if (m.role === "user") return <UserBubble key={m.id} m={m} />;
-            if (m.role === "control")
-              return m.control ? (
-                <div key={m.id} className="msg my-2 text-center text-[11px] text-faint">
-                  {t("chat.effortChanged", { level: t(`effort.${m.control.effort}`) })}
+          {shown.map((item, i) => {
+            if (item.kind === "control")
+              return item.message.control ? (
+                <div key={item.message.id} className="msg my-2 text-center text-[11px] text-faint">
+                  {t("chat.effortChanged", { level: t(`effort.${item.message.control.effort}`) })}
                 </div>
               ) : null;
-            return <AssistantBlock key={m.id} m={m} results={results} live={running && i === shown.length - 1} />;
+            return <TurnBlock key={item.turn.key} turn={item.turn} results={results} live={running && i === shown.length - 1} />;
           })}
           {lastError && !running && <ErrorBox error={lastError} onRetry={lastError.code === "provider" ? retry : undefined} />}
         </div>

@@ -193,7 +193,10 @@ pub fn trim_context(history: &mut [Message], budget: u64, system: &[String]) -> 
 pub async fn run(state: Arc<AppState>, p: RunParams, cancel: Cancel, emit: Emit) {
     let conv = p.conversation_id.clone();
     let mode = p.mode;
-    let result = run_inner(&state, p, &cancel, &emit).await;
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let run_started_at = crate::model::now_ms();
+    let started = std::time::Instant::now();
+    let result = run_inner(&state, p, &cancel, &emit, &run_id, run_started_at).await;
     let stopped = match result {
         Ok(stopped) => stopped,
         Err(AppError::Cancelled) => true,
@@ -202,6 +205,14 @@ pub async fn run(state: Arc<AppState>, p: RunParams, cancel: Cancel, emit: Emit)
             false
         }
     };
+    if let Ok(c) = state.db.get_conversation(&conv)
+        && let Some(mut last) = c.messages.into_iter().rev().find(|m| m.role == Role::Assistant && m.run_id.as_deref() == Some(&run_id)) {
+            last.run_duration_ms = Some(started.elapsed().as_millis().min(u64::MAX as u128) as u64);
+            match state.db.upsert_message(&conv, &last) {
+                Ok(()) => emit(AgentEvent::Message { message: last }),
+                Err(e) => emit(AgentEvent::Error { message_id: None, error: e }),
+            }
+        }
     let pending = cancel.close_guidance();
     if !pending.is_empty() {
         let skills = state.skills_snapshot();
@@ -229,9 +240,12 @@ fn make_guidance(text: &str, mode: Mode, skills: &crate::skills::SkillStore) -> 
     Ok(m)
 }
 
-fn append_guidance(state: &AppState, conv: &str, mode: Mode, skills: &crate::skills::SkillStore, messages: &mut Vec<Message>, pending: Vec<String>, emit: &Emit) -> AppResult<()> {
+#[allow(clippy::too_many_arguments)]
+fn append_guidance(state: &AppState, conv: &str, mode: Mode, skills: &crate::skills::SkillStore, messages: &mut Vec<Message>, pending: Vec<String>, emit: &Emit, run_id: &str, run_started_at: i64) -> AppResult<()> {
     for text in pending {
-        let m = make_guidance(&text, mode, skills)?;
+        let mut m = make_guidance(&text, mode, skills)?;
+        m.run_id = Some(run_id.to_string());
+        m.run_started_at = Some(run_started_at);
         state.db.upsert_message(conv, &m)?;
         emit(AgentEvent::Message { message: m.clone() });
         messages.push(m);
@@ -239,7 +253,7 @@ fn append_guidance(state: &AppState, conv: &str, mode: Mode, skills: &crate::ski
     Ok(())
 }
 
-async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &Emit) -> AppResult<bool> {
+async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &Emit, run_id: &str, run_started_at: i64) -> AppResult<bool> {
     let settings = state.settings();
     let skills = state.skills_snapshot();
     let workspace: Option<String> = settings.workspace.clone();
@@ -287,6 +301,8 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
             return Err(AppError::Invalid(format!("attachment '{}' is not supported yet", bad.name)));
         }
         let mut u = Message::new(Role::User);
+        u.run_id = Some(run_id.to_string());
+        u.run_started_at = Some(run_started_at);
         u.text = text.clone();
         u.attachments = p.attachments.clone();
         for name in skills.mentioned(text) {
@@ -347,7 +363,7 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
         if cancel.is_cancelled() {
             return Ok(true);
         }
-        append_guidance(state, &p.conversation_id, p.mode, &skills, &mut messages, cancel.take_guidance(false), emit)?;
+        append_guidance(state, &p.conversation_id, p.mode, &skills, &mut messages, cancel.take_guidance(false), emit, run_id, run_started_at)?;
         let budget = caps.context_window.saturating_sub(max_output).saturating_mul(85) / 100;
         let trimmed = trim_context(&mut messages, budget, &system);
         if trimmed > 0 {
@@ -368,6 +384,8 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
         };
 
         let mut a = Message::new(Role::Assistant);
+        a.run_id = Some(run_id.to_string());
+        a.run_started_at = Some(run_started_at);
         a.provider = Some(p.provider);
         a.model = Some(caps.id.clone());
         a.effort = effective_effort;
@@ -482,7 +500,7 @@ async fn run_inner(state: &Arc<AppState>, p: RunParams, cancel: &Cancel, emit: &
             messages.push(a);
             let pending = cancel.take_guidance(true);
             if pending.is_empty() { return Ok(false); }
-            append_guidance(state, &p.conversation_id, p.mode, &skills, &mut messages, pending, emit)?;
+            append_guidance(state, &p.conversation_id, p.mode, &skills, &mut messages, pending, emit, run_id, run_started_at)?;
             continue;
         }
 
@@ -553,6 +571,7 @@ async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall,
             let request_id = uuid::Uuid::new_v4().to_string();
             let (tx, rx) = oneshot::channel();
             lock(&state.approvals).insert(request_id.clone(), tx);
+            crate::logging::info(&format!("tool {} awaiting approval", call.name));
             emit(tool_status(mid, call, "pending", Some(ApprovalPrompt { request_id: request_id.clone(), request: req.clone() })));
             let decision = tokio::select! {
                 d = rx => d.unwrap_or(Decision::Deny),
@@ -569,6 +588,7 @@ async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall,
             };
             match decision {
                 Decision::Deny => {
+                    crate::logging::info(&format!("tool {} approval denied", call.name));
                     emit(tool_status(mid, call, "cancelled", None));
                     return result(call, "The user denied this action. Do not retry it another way; ask the user how to proceed.".into(), "cancelled", diff);
                 }
@@ -581,6 +601,7 @@ async fn run_tool(state: &Arc<AppState>, conv: &str, mid: &str, call: &ToolCall,
         return result(call, "Skipped because the user provided new guidance.".into(), "cancelled", diff);
     }
     emit(tool_status(mid, call, "running", None));
+    crate::logging::info(&format!("tool {} started", call.name));
     let output = match prepared.action {
         tools::Action::Visual { path, question } => {
             let safe = tools::sandbox::resolve(ctx.workspace, &path.to_string_lossy());

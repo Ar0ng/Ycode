@@ -82,8 +82,8 @@ pub fn bootstrap(app: tauri::AppHandle, st: St) -> AppResult<Bootstrap> {
     })
 }
 
-const PATCHABLE: [&str; 18] =
-    ["auto_approve_edits", "auto_update_repo", "profile_name", "hide_legacy_models", "hidden_models", "image_generation", "image_model", "language", "theme", "provider", "mode", "models", "efforts", "update_repo", "check_updates_on_start", "claude_fallbacks", "sidebar_collapsed", "max_steps"];
+const PATCHABLE: [&str; 19] =
+    ["auto_approve_edits", "auto_update_repo", "profile_name", "hide_legacy_models", "hidden_models", "image_generation", "image_model", "language", "theme", "activity_display", "provider", "mode", "models", "efforts", "update_repo", "check_updates_on_start", "claude_fallbacks", "sidebar_collapsed", "max_steps"];
 
 #[tauri::command]
 pub fn update_settings(st: St, patch: Value) -> AppResult<Settings> {

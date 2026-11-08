@@ -67,6 +67,9 @@ export interface Message {
   error?: AppError;
   created_at: number;
   timing?: Timing | null;
+  run_id?: string | null;
+  run_started_at?: number | null;
+  run_duration_ms?: number | null;
 }
 
 export interface ConversationSummary {
@@ -129,6 +132,7 @@ export interface ModelCaps {
 export interface Settings {
   language: string | null;
   theme: "system" | "light" | "dark";
+  activity_display: "minimal" | "full";
   provider: ProviderId;
   mode: Mode;
   models: Record<string, string>;

@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { AlertTriangle, Ban, Check, ChevronRight, CircleDashed, Loader2, X } from "lucide-react";
-import { useStore } from "../lib/store";
+import { Ban, Check, ChevronRight, CircleDashed, Loader2, X } from "lucide-react";
+import { toolStateKey, useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
 import type { ToolCall, ToolResult, ToolStatus } from "../lib/types";
 import { GeneratedImages } from "./GeneratedImages";
@@ -31,17 +31,19 @@ const ICON: Record<ToolStatus, React.ReactNode> = {
   cancelled: <Ban size={14} className="text-faint" />,
 };
 
-export function ToolCard({ call, result }: { call: ToolCall; result?: ToolResult }) {
+export function ToolCard({ call, result, compact = false, expanded = false }: { call: ToolCall; result?: ToolResult; compact?: boolean; expanded?: boolean }) {
   const t = useT();
-  const live = useStore((s) => s.tools[call.id]);
-  const approve = useStore((s) => s.approve);
+  const live = useStore((s) => s.currentId ? s.tools[toolStateKey(s.currentId, call.id)] : undefined);
   const [open, setOpen] = useState(false);
   const running = useStore((s) => (s.currentId ? !!s.running[s.currentId] : false));
   // No saved result and nothing running: the call was interrupted (app closed /
   // restarted mid-tool); show it as cancelled instead of "waiting" forever.
   const status: ToolStatus = (result?.status as ToolStatus) ?? live?.status ?? (running ? "pending" : "cancelled");
   const approval = !result ? live?.approval : undefined;
-  const diff = result?.diff ?? approval?.diff;
+  const diff = result?.diff;
+  const important = ["write_file", "edit_file", "run_command", "inspect_visual", "generate_image", "edit_image"].includes(call.name);
+  if (approval) return null; // The persistent approval panel remains visible above the composer.
+  if (compact && !expanded && !approval && status !== "failed" && !(result?.images?.length) && !(status === "running" && important)) return null;
 
   return (
     <div className="msg my-1.5 rounded-lg border border-line text-[13px]">
@@ -53,35 +55,10 @@ export function ToolCard({ call, result }: { call: ToolCall; result?: ToolResult
         <ChevronRight size={14} className={`text-faint transition-transform ${open ? "rotate-90" : ""}`} />
       </button>
       {result?.images && result.images.length > 0 && <GeneratedImages ids={result.images} />}
-      {approval && (
-        <div className="border-t border-line px-3 py-2.5">
-          <div className="mb-1.5 font-medium">{t(`tool.${approval.kind}`)}</div>
-          {approval.kind === "run_command" && <pre className="mb-2 overflow-x-auto rounded-md border border-line bg-code px-2.5 py-1.5 font-mono text-[12px] whitespace-pre-wrap">{approval.target}</pre>}
-          {approval.kind !== "run_command" && <div className="mb-2 font-mono text-xs break-all text-muted">{approval.target}</div>}
-          {approval.warning && (
-            <div className="mb-2 flex items-center gap-1.5 text-xs text-warn">
-              <AlertTriangle size={13} />
-              {t("tool.warning", { why: approval.warning })}
-            </div>
-          )}
-          {approval.diff && <Diff text={approval.diff} />}
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <button type="button" onClick={() => approve(approval.request_id, "allow")} className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-fg">
-              {t("tool.approve")}
-            </button>
-            <button type="button" onClick={() => approve(approval.request_id, "allow_session")} className="rounded-md border border-line px-3 py-1 text-xs hover:bg-hover">
-              {t("tool.approveSession")}
-            </button>
-            <button type="button" onClick={() => approve(approval.request_id, "deny")} className="rounded-md border border-line px-3 py-1 text-xs text-danger hover:bg-hover">
-              {t("tool.deny")}
-            </button>
-          </div>
-        </div>
-      )}
       {open && (
         <div className="space-y-2 border-t border-line px-3 py-2">
           <pre className="overflow-x-auto font-mono text-[11.5px] whitespace-pre-wrap text-muted">{JSON.stringify(call.arguments, null, 2)}</pre>
-          {diff && !approval && (
+          {diff && (
             <div>
               <div className="mb-1 text-[11px] text-faint">{t("tool.showDiff")}</div>
               <Diff text={diff} />

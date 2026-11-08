@@ -160,6 +160,9 @@ async fn simple_chat_persists_and_titles() {
     assert_eq!(conv.messages.len(), 2);
     assert_eq!(conv.messages[1].text, "Hello there");
     assert_eq!(conv.messages[1].reasoning.as_deref(), Some("think"));
+    assert_eq!(conv.messages[0].run_id, conv.messages[1].run_id);
+    assert!(conv.messages[1].run_duration_ms.is_some());
+    assert!(conv.messages[1].run_started_at.is_some());
     let ev = ev.lock().unwrap();
     assert!(ev.iter().any(|e| matches!(e, AgentEvent::Finished { stopped: false })));
     assert!(ev.iter().any(|e| matches!(e, AgentEvent::Usage { .. })));

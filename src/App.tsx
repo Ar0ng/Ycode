@@ -10,6 +10,8 @@ import { SettingsView } from "./components/Settings";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Logo } from "./components/Logo";
 import { TopBar } from "./components/TopBar";
+import { WindowBar } from "./components/WindowBar";
+import { ActiveTool } from "./components/ActiveTool";
 
 function useTheme() {
   const theme = useStore((s) => s.settings?.theme ?? "system");
@@ -90,6 +92,7 @@ function ChatArea() {
       <TopBar isNew={false} />
       {loading ? <div className="flex-1" /> : <MessageList />}
       <div className="px-6 pt-1 pb-3">
+        <ActiveTool />
         <Composer centered={false} />
       </div>
     </div>
@@ -112,13 +115,16 @@ export default function App() {
   if (!ready) return <div className="h-full bg-bg" />;
 
   return (
-    <div className="flex h-full min-w-[900px]">
+    <div className="flex h-full min-w-[900px] flex-col bg-sidebar">
+      <WindowBar />
+      <div className="flex min-h-0 flex-1">
       <Sidebar />
-      <main className="flex min-w-0 flex-1 flex-col bg-panel">
+      <main className="mr-2 mb-2 flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-panel">
         <ErrorBoundary resetKey={view} onBack={() => useStore.getState().setView("chat")}>
           {view === "settings" ? <SettingsView /> : <ChatArea />}
         </ErrorBoundary>
       </main>
+      </div>
       <Notices />
     </div>
   );

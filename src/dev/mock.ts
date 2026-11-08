@@ -31,6 +31,7 @@ const boot: Bootstrap = {
     profile_name: "",
     auto_approve_edits: false,
     check_updates_on_start: false,
+    activity_display: "minimal",
     claude_fallbacks: true,
     sidebar_collapsed: false,
     max_steps: 40,

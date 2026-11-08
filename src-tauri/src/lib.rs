@@ -11,18 +11,23 @@ pub mod state;
 pub mod storage;
 pub mod tools;
 pub mod updater;
+mod single_instance;
 
 use std::sync::Arc;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(windows)]
+    let Some(instance) = single_instance::claim() else { return; };
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .setup(|app| {
+        .setup(move |app| {
+            #[cfg(windows)]
+            single_instance::listen(instance, app.handle().clone());
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             logging::init(dir.join("logs"));

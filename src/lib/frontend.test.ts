@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { clampEffort, defaultModel, supportedEfforts } from "./effort";
 import { dictionaries, translate } from "./i18n";
 import { fmt, hitRate } from "../components/UsageLine";
@@ -7,10 +7,65 @@ import type { ModelCaps } from "./types";
 import { isHidden, isLegacy } from "./models";
 import { displayVersion } from "./format";
 import { pickGreeting, timeOfDay } from "./greeting";
-import { deriveConfig, resolveSelection } from "./store";
+import { deriveConfig, resolveSelection, toolStateKey, useStore } from "./store";
+import { api } from "./api";
+import type { AgentEvent } from "./types";
 import { roundStats } from "./stats";
 import { formatDuration } from "./useNow";
 import type { Message, Settings } from "./types";
+import { displayTurns } from "./turns";
+
+describe("task activity grouping", () => {
+  const m = (id: string, role: Message["role"], run_id?: string): Message => ({ id, role, run_id, text: id, status: "complete", created_at: 1000 });
+  it("keeps iterations and live guidance within one task", () => {
+    const items = displayTurns([m("u", "user", "r"), m("a1", "assistant", "r"), m("tool", "tool"), m("guide", "user", "r"), m("a2", "assistant", "r"), m("next", "user", "r2"), m("a3", "assistant", "r2")]);
+    expect(items).toHaveLength(2);
+    if (items[0].kind !== "turn") throw new Error("expected task");
+    expect(items[0].turn.assistants.map((x) => x.id)).toEqual(["a1", "a2"]);
+    expect(items[0].turn.guidance.map((x) => x.id)).toEqual(["guide"]);
+  });
+  it("groups older messages by user turn", () => {
+    expect(displayTurns([m("u1", "user"), m("a1", "assistant"), m("a2", "assistant"), m("u2", "user"), m("a3", "assistant")])).toHaveLength(2);
+  });
+});
+
+describe("pending tool approvals", () => {
+  it("survives switching chats and a failed approval submission", async () => {
+    const before = useStore.getState();
+    let onEvent: ((event: AgentEvent) => void) | undefined;
+    const send = vi.spyOn(api, "sendMessage").mockImplementation(async (_params, callback) => { onEvent = callback; });
+    const get = vi.spyOn(api, "getConversation").mockResolvedValue({ id: "c1", title: "test", mode: "coding", created_at: 1, updated_at: 1, messages: [], usage: null } as never);
+    const approve = vi.spyOn(api, "respondApproval").mockRejectedValue({ code: "invalid", message: "temporarily unavailable" });
+    try {
+      useStore.setState({ currentId: "c1", settings: { provider: "deepseek", models: { deepseek: "deepseek-flash" }, efforts: {}, mode: "coding" } as unknown as Settings, models: [caps({})], conversations: [], tools: {}, running: {}, lastError: null });
+      await useStore.getState().send("work", []);
+      const firstEvent = onEvent!;
+      firstEvent({ type: "tool_status", message_id: "a", call_id: "call", name: "run_command", status: "pending", approval: { request_id: "approval", kind: "run_command", target: "test" } });
+      useStore.getState().newChat();
+      useStore.setState({ currentId: "c2" });
+      await useStore.getState().send("other", []);
+      onEvent!({ type: "tool_status", message_id: "b", call_id: "call", name: "read_file", status: "running" });
+      await useStore.getState().openChat("c1");
+      expect(useStore.getState().tools[toolStateKey("c1", "call")].approval?.request_id).toBe("approval");
+      expect(useStore.getState().tools[toolStateKey("c2", "call")].name).toBe("read_file");
+      await useStore.getState().approve("approval", "allow");
+      expect(useStore.getState().tools[toolStateKey("c1", "call")].approval?.request_id).toBe("approval");
+      expect(useStore.getState().lastError?.message).toBe("temporarily unavailable");
+      firstEvent({ type: "finished", stopped: true });
+      expect(useStore.getState().tools[toolStateKey("c1", "call")]).toBeUndefined();
+      expect(useStore.getState().tools[toolStateKey("c2", "call")].name).toBe("read_file");
+    } finally { send.mockRestore(); get.mockRestore(); approve.mockRestore(); useStore.setState(before, true); }
+  });
+  it("renders the requested operation and approval controls", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { ApprovalDetails } = await import("../components/ActiveTool");
+    const html = renderToStaticMarkup(createElement(ApprovalDetails, { approval: { request_id: "r1", kind: "run_command", target: "VISIBLE-COMMAND" }, busy: false, decide: async () => {} }));
+    expect(html).toContain("VISIBLE-COMMAND");
+    expect(html).toContain('role="alert"');
+    expect((html.match(/<button/g) ?? []).length).toBe(3);
+  });
+});
 
 const caps = (over: Partial<ModelCaps>): ModelCaps => ({
   provider: "deepseek",

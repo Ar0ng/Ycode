@@ -180,7 +180,7 @@ export function Sidebar() {
 
   if (collapsed) {
     return (
-      <aside className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-line bg-sidebar py-3">
+      <aside className="flex w-14 shrink-0 flex-col items-center gap-1 bg-sidebar py-3">
         <Logo size={30} className="mb-2" />
         <button type="button" title={t("sidebar.expand")} onClick={() => patchSettings({ sidebar_collapsed: false })} className="rounded-md p-2 text-muted hover:bg-hover hover:text-fg">
           <PanelLeftOpen size={17} />
@@ -198,7 +198,7 @@ export function Sidebar() {
   const ungrouped = conversations.filter((c) => !c.group_id || !known.has(c.group_id));
 
   return (
-    <aside className="flex w-[260px] shrink-0 flex-col border-r border-line bg-sidebar">
+    <aside className="flex w-[260px] shrink-0 flex-col bg-sidebar">
       <div className="flex items-center justify-between px-4 pt-4 pb-3">
         <div className="flex items-center gap-2.5">
           <Logo size={32} />

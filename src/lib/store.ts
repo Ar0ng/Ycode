@@ -32,7 +32,12 @@ export interface Notice {
 interface ToolState {
   status: ToolStatus;
   approval?: ApprovalPrompt;
+  conversationId: string;
+  callId: string;
+  name: string;
 }
+
+export const toolStateKey = (conversationId: string, callId: string) => JSON.stringify([conversationId, callId]);
 
 export interface UpdateState {
   info: UpdateInfo | null;
@@ -66,6 +71,7 @@ interface State {
   messages: Message[];
   loadingConversation: boolean;
   running: Record<string, boolean>;
+  providerWaiting: Record<string, boolean>;
   tools: Record<string, ToolState>;
   convUsage: Usage | null;
   lastUsage: Usage | null;
@@ -148,9 +154,11 @@ export const useStore = create<State & Actions>((set, get) => {
     const visible = () => get().currentId === convId;
     switch (e.type) {
       case "message":
+        if (e.message.role === "assistant" && e.message.status === "streaming") set((s) => ({ providerWaiting: { ...s.providerWaiting, [convId]: false } }));
         if (visible()) upsertMessage(e.message);
         break;
       case "delta":
+        if (get().providerWaiting[convId]) set((s) => ({ providerWaiting: { ...s.providerWaiting, [convId]: false } }));
         if (!visible()) break;
         {
           const p = pending.get(e.message_id) ?? { text: "", reasoning: "" };
@@ -161,13 +169,14 @@ export const useStore = create<State & Actions>((set, get) => {
         }
         break;
       case "tool_status":
-        set((s) => ({ tools: { ...s.tools, [e.call_id]: { status: e.status, approval: e.status === "pending" ? e.approval : undefined } } }));
+        set((s) => ({ providerWaiting: { ...s.providerWaiting, [convId]: false }, tools: { ...s.tools, [toolStateKey(convId, e.call_id)]: { conversationId: convId, callId: e.call_id, name: e.name, status: e.status, approval: e.status === "pending" ? e.approval : undefined } } }));
         break;
       case "usage":
         if (visible()) set({ lastUsage: e.turn, convUsage: e.total });
         break;
       case "notice": {
         if (e.code === "provider") {
+          if (e.detail === "waiting_provider" || e.detail.startsWith("retry:")) set((s) => ({ providerWaiting: { ...s.providerWaiting, [convId]: true } }));
           if (e.detail === "fallback") get().addNotice("fallback");
           else if (e.detail.startsWith("retry:")) get().addNotice("retry", e.detail.split(":")[1]);
           else if (e.detail === "waiting_provider") get().addNotice("waiting_provider");
@@ -182,7 +191,7 @@ export const useStore = create<State & Actions>((set, get) => {
         break;
       case "finished":
         flush();
-        set((s) => ({ running: { ...s.running, [convId]: false } }));
+        set((s) => ({ running: { ...s.running, [convId]: false }, providerWaiting: { ...s.providerWaiting, [convId]: false }, tools: Object.fromEntries(Object.entries(s.tools).filter(([, v]) => v.conversationId !== convId)) }));
         api.listConversations().then((conversations) => set({ conversations })).catch(() => {});
         break;
     }
@@ -202,7 +211,7 @@ export const useStore = create<State & Actions>((set, get) => {
 
   const run = async (convId: string, text: string | null, attachments: Attachment[]) => {
     const sel = currentSelection();
-    set((s) => ({ running: { ...s.running, [convId]: true }, lastError: null }));
+    set((s) => ({ running: { ...s.running, [convId]: true }, providerWaiting: { ...s.providerWaiting, [convId]: false }, lastError: null }));
     try {
       await api.sendMessage(
         { conversation_id: convId, text, attachments, provider: sel.provider, model: sel.model, effort: sel.effort, mode: sel.mode, group_id: get().draftGroupId },
@@ -235,6 +244,7 @@ export const useStore = create<State & Actions>((set, get) => {
     messages: [],
     loadingConversation: false,
     running: {},
+    providerWaiting: {},
     tools: {},
     convUsage: null,
     lastUsage: null,
@@ -269,7 +279,7 @@ export const useStore = create<State & Actions>((set, get) => {
     },
 
     newChat(groupId = null) {
-      set({ currentId: null, draftId: uuid(), draftGroupId: groupId, messages: [], tools: {}, convUsage: null, lastUsage: null, lastError: null, view: "chat" });
+      set({ currentId: null, draftId: uuid(), draftGroupId: groupId, messages: [], convUsage: null, lastUsage: null, lastError: null, view: "chat" });
     },
 
     async createGroup(name) {
@@ -314,7 +324,7 @@ export const useStore = create<State & Actions>((set, get) => {
     async openChat(id) {
       // Each chat keeps its own mode/model; opening one never changes the
       // defaults used for new chats.
-      set({ view: "chat", currentId: id, draftGroupId: null, loadingConversation: true, messages: [], tools: {}, lastError: null, lastUsage: null });
+      set({ view: "chat", currentId: id, draftGroupId: null, loadingConversation: true, messages: [], lastError: null, lastUsage: null });
       try {
         const c = await api.getConversation(id);
         if (get().currentId !== id) return;
@@ -393,12 +403,14 @@ export const useStore = create<State & Actions>((set, get) => {
     },
 
     async approve(requestId, decision) {
-      set((s) => {
-        const tools = { ...s.tools };
-        for (const [k, v] of Object.entries(tools)) if (v.approval?.request_id === requestId) tools[k] = { status: decision === "deny" ? "cancelled" : "running" };
-        return { tools };
-      });
-      await api.respondApproval(requestId, decision).catch((e) => set({ lastError: e as AppError }));
+      try {
+        await api.respondApproval(requestId, decision);
+        set((s) => {
+          const tools = { ...s.tools };
+          for (const [k, v] of Object.entries(tools)) if (v.approval?.request_id === requestId) tools[k] = { ...v, status: decision === "deny" ? "cancelled" : "running", approval: undefined };
+          return { tools };
+        });
+      } catch (e) { set({ lastError: e as AppError }); }
     },
 
     async patchSettings(p) {

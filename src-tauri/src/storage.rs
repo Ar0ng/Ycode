@@ -89,6 +89,8 @@ pub struct Settings {
     pub language: Option<String>,
     /// "system" | "light" | "dark"
     pub theme: String,
+    /// Display detail for agent activity; this does not change tool permissions.
+    pub activity_display: String,
     pub provider: ProviderId,
     pub mode: Mode,
     /// Selected model per provider.
@@ -133,6 +135,7 @@ impl Default for Settings {
         Self {
             language: None,
             theme: "system".into(),
+            activity_display: "minimal".into(),
             provider: ProviderId::Openai,
             mode: Mode::Office,
             models: BTreeMap::new(),
@@ -165,6 +168,7 @@ impl Settings {
     /// 0.1.1 have `update_repo: ""`, which left the updater unconfigured after an
     /// upgrade; an empty repository always means the official one.
     pub fn normalize(&mut self) {
+        if self.activity_display != "full" { self.activity_display = "minimal".into(); }
         let repo = self.update_repo.trim().trim_matches('/');
         self.update_repo = if repo.is_empty() { DEFAULT_UPDATE_REPO.to_string() } else { repo.to_string() };
         self.profile_name = self.profile_name.trim().chars().filter(|c| !c.is_control()).take(32).collect();

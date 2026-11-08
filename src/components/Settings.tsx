@@ -55,6 +55,12 @@ function General() {
           <option value="dark">{t("settings.theme.dark")}</option>
         </select>
       </Row>
+      <Row label={t("settings.activity")} hint={t("settings.activityHint")}>
+        <select className={inputCls} value={s.activity_display ?? "minimal"} onChange={(e) => patch({ activity_display: e.target.value as "minimal" | "full" })}>
+          <option value="minimal">{t("settings.activityMinimal")}</option>
+          <option value="full">{t("settings.activityFull")}</option>
+        </select>
+      </Row>
       <Row label={t("settings.maxSteps")}>
         <input type="number" min={1} max={200} className={`${inputCls} w-24`} value={s.max_steps} onChange={(e) => patch({ max_steps: Math.max(1, Math.min(200, Number(e.target.value) || 1)) })} />
       </Row>

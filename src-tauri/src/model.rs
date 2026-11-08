@@ -263,6 +263,12 @@ pub struct Message {
     pub created_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timing: Option<Timing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_started_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_duration_ms: Option<u64>,
 }
 
 fn default_status() -> String {
@@ -290,6 +296,9 @@ impl Message {
             error: None,
             created_at: now_ms(),
             timing: None,
+            run_id: None,
+            run_started_at: None,
+            run_duration_ms: None,
         }
     }
 
