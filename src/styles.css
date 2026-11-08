@@ -219,9 +219,35 @@ body {
   animation: pulse-dot 1.2s ease-in-out infinite;
 }
 
+/* "Thinking" label: each character hops in turn from left to right and is
+   highlighted exactly while it hops (same keyframes → same rate). The delay
+   per character is set inline (--i), see WaveText. */
+@keyframes wave-hop {
+  0%,
+  36%,
+  100% {
+    transform: translateY(0);
+    color: inherit;
+    text-shadow: none;
+  }
+  18% {
+    transform: translateY(-3px);
+    color: var(--fg);
+    text-shadow: 0 0 6px color-mix(in srgb, var(--fg) 35%, transparent);
+  }
+}
+.wave-char {
+  display: inline-block;
+  white-space: pre;
+  animation: wave-hop 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation-delay: calc(var(--i) * 80ms);
+  will-change: transform;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fade-in,
-  .pulse-dot {
+  .pulse-dot,
+  .wave-char {
     animation: none;
   }
 }

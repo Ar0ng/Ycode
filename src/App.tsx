@@ -11,7 +11,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Logo } from "./components/Logo";
 import { TopBar } from "./components/TopBar";
 import { WindowBar } from "./components/WindowBar";
-import { ActiveTool } from "./components/ActiveTool";
+import { ActiveTool, ApprovalPanel, usePendingApproval } from "./components/ActiveTool";
 
 function useTheme() {
   const theme = useStore((s) => s.settings?.theme ?? "system");
@@ -66,6 +66,7 @@ function Welcome() {
 }
 
 function ChatArea() {
+  const approval = usePendingApproval();
   const currentId = useStore((s) => s.currentId);
   const hasMessages = useStore((s) => s.messages.length > 0);
   const loading = useStore((s) => s.loadingConversation);
@@ -92,8 +93,12 @@ function ChatArea() {
       <TopBar isNew={false} />
       {loading ? <div className="flex-1" /> : <MessageList />}
       <div className="px-6 pt-1 pb-3">
-        <ActiveTool />
-        <Composer centered={false} />
+        {!approval && <ActiveTool />}
+        {approval && <ApprovalPanel approval={approval} />}
+        {/* Hidden (not unmounted) while approving, so a half-typed message survives. */}
+        <div className={approval ? "hidden" : undefined}>
+          <Composer centered={false} />
+        </div>
       </div>
     </div>
   );

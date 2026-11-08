@@ -8,6 +8,7 @@ import { CopyButton, Markdown } from "./Markdown";
 import { ToolCard } from "./ToolCard";
 import { UsageLine } from "./UsageLine";
 import { displayTurns, type DisplayTurn } from "../lib/turns";
+import { WaveText } from "./WaveText";
 
 const PAGE = 60;
 
@@ -80,9 +81,13 @@ function TurnBlock({ turn, results, live }: { turn: DisplayTurn; results: Map<st
     <>
       {turn.user && <UserBubble m={turn.user} />}
       {hasActivity && <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="msg mt-2 mb-1 flex w-full items-center gap-1 border-b border-line pb-2 text-left text-xs text-faint hover:text-muted">
-        {live ? t("chat.thinkingLive", { s: seconds ?? "" }) : seconds ? t("chat.elapsed", { s: seconds }) : t("chat.reasoning")}
+        {live ? (
+          <span className="tabular-nums">
+            <WaveText text={t("chat.thinkingWord")} />
+            {seconds ? ` · ${seconds}` : ""}
+          </span>
+        ) : seconds ? t("chat.elapsed", { s: seconds }) : t("chat.reasoning")}
         <ChevronRight size={13} className={`transition-transform ${open ? "rotate-90" : ""}`} />
-        {live && <span className="pulse-dot ml-1 inline-block h-1 w-1 rounded-full bg-faint" />}
       </button>}
       {assistants.map((m) => <div key={m.id}>
         {open && m.reasoning && <div className="mt-1 border-l-2 border-line pl-3 text-[13px] whitespace-pre-wrap text-muted">{m.reasoning}</div>}

@@ -73,6 +73,8 @@ interface State {
   running: Record<string, boolean>;
   providerWaiting: Record<string, boolean>;
   tools: Record<string, ToolState>;
+  /** Messages typed while a reply is running, per chat; sent in order when it ends. */
+  queued: Record<string, QueuedPrompt[]>;
   convUsage: Usage | null;
   lastUsage: Usage | null;
   notices: Notice[];
@@ -93,6 +95,11 @@ interface Actions {
   retry(): Promise<void>;
   stop(): void;
   steer(text: string): Promise<boolean>;
+  /** Queue a message for the running chat (sent as a new turn when the reply ends). */
+  enqueue(text: string): void;
+  removeQueued(id: string): void;
+  /** Send a queued message right away: guidance for the running reply, or a normal message when idle. */
+  sendQueuedNow(id: string): Promise<void>;
   approve(requestId: string, decision: "allow" | "allow_session" | "deny"): Promise<void>;
   patchSettings(p: Partial<Settings>): Promise<void>;
   setMode(m: Mode): void;
@@ -111,6 +118,8 @@ interface Actions {
   installUpdate(): Promise<void>;
 }
 
+export interface QueuedPrompt { id: string; text: string }
+
 /** Name shown in greetings: profile name, else the Windows user name. */
 export function displayName(s: { settings: Settings | null; osUser: string }) {
   return (s.settings?.profile_name || "").trim() || s.osUser;
@@ -123,6 +132,8 @@ let noticeSeq = 1;
 // token stream doesn't trigger a React render per token.
 const pending = new Map<string, { text: string; reasoning: string }>();
 let frame = 0;
+// Chats whose queue must not auto-send when the reply ends (stopped by the user or failed).
+const holdQueue = new Set<string>();
 
 export const useStore = create<State & Actions>((set, get) => {
   const flush = () => {
@@ -184,6 +195,7 @@ export const useStore = create<State & Actions>((set, get) => {
         break;
       }
       case "error":
+        holdQueue.add(convId);
         if (visible()) set({ lastError: e.error });
         break;
       case "title":
@@ -193,6 +205,7 @@ export const useStore = create<State & Actions>((set, get) => {
         flush();
         set((s) => ({ running: { ...s.running, [convId]: false }, providerWaiting: { ...s.providerWaiting, [convId]: false }, tools: Object.fromEntries(Object.entries(s.tools).filter(([, v]) => v.conversationId !== convId)) }));
         api.listConversations().then((conversations) => set({ conversations })).catch(() => {});
+        if (!holdQueue.has(convId)) setTimeout(() => dispatchQueued(convId), 0);
         break;
     }
   };
@@ -202,6 +215,21 @@ export const useStore = create<State & Actions>((set, get) => {
     return s.currentId ? (s.conversations.find((c) => c.id === s.currentId)?.config ?? null) : null;
   };
   const currentSelection = () => resolveSelection(get().settings!, get().models, currentConfig());
+  const selectionFor = (convId: string) =>
+    convId === get().currentId ? currentSelection() : resolveSelection(get().settings!, get().models, get().conversations.find((c) => c.id === convId)?.config ?? null);
+
+  const takeQueued = (convId: string, id?: string): QueuedPrompt | undefined => {
+    const list = get().queued[convId] ?? [];
+    const item = id ? list.find((q) => q.id === id) : list[0];
+    if (item) set((s) => ({ queued: { ...s.queued, [convId]: list.filter((q) => q !== item) } }));
+    return item;
+  };
+  /** The reply ended normally: send the next queued message as a new turn. */
+  const dispatchQueued = (convId: string) => {
+    if (get().running[convId]) return;
+    const next = takeQueued(convId);
+    if (next) void run(convId, next.text, []);
+  };
 
   /** Save a chat's own settings (memory + DB); a chat not yet in the DB is skipped. */
   const setConvConfig = (id: string, config: ConvConfig) => {
@@ -210,7 +238,8 @@ export const useStore = create<State & Actions>((set, get) => {
   };
 
   const run = async (convId: string, text: string | null, attachments: Attachment[]) => {
-    const sel = currentSelection();
+    const sel = selectionFor(convId);
+    holdQueue.delete(convId);
     set((s) => ({ running: { ...s.running, [convId]: true }, providerWaiting: { ...s.providerWaiting, [convId]: false }, lastError: null }));
     try {
       await api.sendMessage(
@@ -218,6 +247,7 @@ export const useStore = create<State & Actions>((set, get) => {
         handle(convId),
       );
     } catch (err) {
+      holdQueue.add(convId);
       set((s) => ({ running: { ...s.running, [convId]: false }, lastError: err as AppError }));
     }
   };
@@ -246,6 +276,7 @@ export const useStore = create<State & Actions>((set, get) => {
     running: {},
     providerWaiting: {},
     tools: {},
+    queued: {},
     convUsage: null,
     lastUsage: null,
     notices: [],
@@ -386,7 +417,36 @@ export const useStore = create<State & Actions>((set, get) => {
 
     stop() {
       const id = get().currentId;
-      if (id) api.stopRun(id).catch(() => {});
+      if (!id) return;
+      holdQueue.add(id);
+      api.stopRun(id).catch(() => {});
+    },
+
+    enqueue(text) {
+      const id = get().currentId;
+      const t = text.trim();
+      if (!id || !t) return;
+      set((s) => ({ queued: { ...s.queued, [id]: [...(s.queued[id] ?? []), { id: uuid(), text: t }] } }));
+    },
+
+    removeQueued(qid) {
+      const id = get().currentId;
+      if (id) takeQueued(id, qid);
+    },
+
+    async sendQueuedNow(qid) {
+      const id = get().currentId;
+      if (!id) return;
+      const item = (get().queued[id] ?? []).find((q) => q.id === qid);
+      if (!item) return;
+      if (!get().running[id]) {
+        takeQueued(id, qid);
+        await run(id, item.text, []);
+        return;
+      }
+      // Guidance for the running reply: it changes the direction of the current
+      // turn instead of starting a new one. Kept in the queue if it fails.
+      if (await get().steer(item.text)) takeQueued(id, qid);
     },
 
     async steer(text) {

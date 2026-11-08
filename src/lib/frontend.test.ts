@@ -29,6 +29,55 @@ describe("task activity grouping", () => {
   });
 });
 
+describe("queued messages while a reply runs", () => {
+  const setup = () => {
+    const calls: { text: string | null; onEvent: (e: AgentEvent) => void }[] = [];
+    const send = vi.spyOn(api, "sendMessage").mockImplementation(async (params, callback) => { calls.push({ text: params.text, onEvent: callback }); });
+    const steer = vi.spyOn(api, "steerRun").mockResolvedValue(undefined);
+    const stop = vi.spyOn(api, "stopRun").mockResolvedValue(undefined);
+    const list = vi.spyOn(api, "listConversations").mockResolvedValue([]);
+    useStore.setState({ currentId: "q1", settings: { provider: "deepseek", models: { deepseek: "deepseek-flash" }, efforts: {}, mode: "coding" } as unknown as Settings, models: [caps({})], conversations: [], tools: {}, running: {}, queued: {}, lastError: null, notices: [] });
+    return { calls, steer, restore: () => [send, steer, stop, list].forEach((m) => m.mockRestore()) };
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it("sends queued messages one by one as new turns after the reply ends", async () => {
+    const before = useStore.getState();
+    const { calls, restore } = setup();
+    try {
+      await useStore.getState().send("first", []);
+      useStore.getState().enqueue("second");
+      useStore.getState().enqueue("third");
+      expect(useStore.getState().queued.q1.map((q) => q.text)).toEqual(["second", "third"]);
+      calls[0].onEvent({ type: "finished", stopped: false });
+      await tick();
+      expect(calls.map((c) => c.text)).toEqual(["first", "second"]);
+      expect(useStore.getState().queued.q1.map((q) => q.text)).toEqual(["third"]);
+    } finally { restore(); useStore.setState(before, true); }
+  });
+
+  it("'send now' steers the running reply instead of starting a new turn; stop keeps the queue", async () => {
+    const before = useStore.getState();
+    const { calls, steer, restore } = setup();
+    try {
+      await useStore.getState().send("first", []);
+      useStore.getState().enqueue("go left");
+      useStore.getState().enqueue("later");
+      await useStore.getState().sendQueuedNow(useStore.getState().queued.q1[0].id);
+      expect(steer).toHaveBeenCalledWith("q1", "go left");
+      expect(calls).toHaveLength(1);
+      useStore.getState().stop();
+      calls[0].onEvent({ type: "finished", stopped: true });
+      await tick();
+      expect(calls).toHaveLength(1);
+      expect(useStore.getState().queued.q1.map((q) => q.text)).toEqual(["later"]);
+      // Idle now: "send now" sends it as a normal message.
+      await useStore.getState().sendQueuedNow(useStore.getState().queued.q1[0].id);
+      expect(calls.map((c) => c.text)).toEqual(["first", "later"]);
+    } finally { restore(); useStore.setState(before, true); }
+  });
+});
+
 describe("pending tool approvals", () => {
   it("survives switching chats and a failed approval submission", async () => {
     const before = useStore.getState();
