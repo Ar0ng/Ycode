@@ -89,7 +89,7 @@ Test builds are a **separate app** so they can't disturb the stable install:
 | Name / exe | Ycode / `Ycode.exe` | YC_pre / `YC_pre.exe` |
 | Install folder (owner's PC) | `E:\YCode\Ycode` | `E:\YCode\YC_pre` |
 | Data folder | `%APPDATA%\com.ycode.desktop` | `%APPDATA%\com.ycode.desktop.preview` |
-| Version | `0.2.3` | `0.2.3-snapshot.1` → `-preview.1` → `-rc.1` |
+| Version | Last approved stable version | `0.3.0-snapshot.1` → `-preview.1` → `-rc.1` |
 | Updates | in-app from GitHub Releases | never; install the next local build |
 
 ```powershell
@@ -101,6 +101,11 @@ config, compiles with `YCODE_CHANNEL=<channel>` (non-stable builds disable the u
 and show the channel next to the version), builds an unsigned installer and, with
 `-Install`, installs it silently into `E:\YCode\YC_pre`. It does not modify the repo
 or publish anything.
+
+The default pre-release base is stored in `scripts/pre-release.json`; currently it is
+`0.3.0`. Pass `-Base` to override it for a specific build. The version fields in
+`package.json`, `Cargo.toml` and `tauri.conf.json` track the last stable release and
+are changed only as part of an approved stable release.
 
 ## Local signed build
 

@@ -8,8 +8,10 @@ Read this file first, then `README.md`, then the doc that matches your task (tab
 > 2. Build a test version of the separate **YC_pre** app and install it into
 >    `E:\YCode\YC_pre`:
 >    `powershell -ExecutionPolicy Bypass -File scripts\build-pre.ps1 -Channel preview -Number <n> -Install`
->    (channels in order: `snapshot` → `preview` → `rc`; version = next patch +
->    `-<channel>.<n>`, e.g. `0.2.3-preview.2`).
+>    (channels in order: `snapshot` → `preview` → `rc`; the pre-release base is
+>    `0.3.0` in `scripts/pre-release.json`, e.g. `0.3.0-preview.2`; pass `-Base`
+>    to override it for a build). Stable version fields remain at the last release
+>    until the owner approves a release.
 > 3. The owner tests it in YC_pre (own data folder `com.ycode.desktop.preview`; it never
 >    self-updates and never touches the stable `E:\YCode\Ycode` install).
 > 4. Only after the owner approves: push `main`, bump the version, tag `vX.Y.Z`
@@ -32,7 +34,7 @@ Credential Manager.
 |---|---|
 | Repository | https://github.com/Ar0ng/Ycode (branch `main`) |
 | Local path (original machine) | `I:\ClaudeData\Ycode` |
-| Current version | 0.2.1 (shown in the app as "V0.2.1") (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` — keep all three equal) |
+| Version fields | Stable `0.3.0` (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`); local pre-release target `0.3.0` (`scripts/pre-release.json`) |
 | App identifier / data dir | `com.ycode.desktop` → `%APPDATA%\com.ycode.desktop\` (`ycode.db`, `images\`, `skills\`, `logs\`) |
 | DB schema version | 2 (`PRAGMA user_version`) |
 | Code size | Rust ≈6.8k lines (incl. tests) · TS/TSX ≈3.4k lines |

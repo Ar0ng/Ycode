@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\build-pre.ps1 -Channel preview -Number 2 -Install
 #
 # - Version = <package.json version base>-<channel>.<number>, e.g. 0.2.3-preview.2
-#   (pass -Base to choose the base, default: next patch after package.json's version).
+#   (pass -Base to override scripts/pre-release.json; absent that file, use the next patch).
 # - Uses src-tauri/tauri.pre.conf.json: product "YC_pre", identifier
 #   com.ycode.desktop.preview (own data folder), no updater artifacts, unsigned.
 # - Compiles with YCODE_CHANNEL=<channel>, so the app never updates itself from GitHub.
@@ -29,9 +29,14 @@ Set-Location $root
 function Say($m) { if ($Log) { $m | Out-File -FilePath $Log -Append -Encoding utf8 } else { Write-Host $m } }
 
 if (-not $Base) {
-  $cur = (Get-Content package.json -Raw | ConvertFrom-Json).version -replace '-.*$', ''
-  $p = $cur.Split('.')
-  $Base = "{0}.{1}.{2}" -f $p[0], $p[1], ([int]$p[2] + 1)
+  $preVersionFile = Join-Path $root 'scripts\pre-release.json'
+  if (Test-Path -LiteralPath $preVersionFile) {
+    $Base = (Get-Content -LiteralPath $preVersionFile -Raw | ConvertFrom-Json).base
+  } else {
+    $cur = (Get-Content package.json -Raw | ConvertFrom-Json).version -replace '-.*$', ''
+    $p = $cur.Split('.')
+    $Base = "{0}.{1}.{2}" -f $p[0], $p[1], ([int]$p[2] + 1)
+  }
 }
 if ($Base -notmatch '^\d+\.\d+\.\d+$') { throw "Base must look like 0.2.3" }
 $version = "$Base-$Channel.$Number"
