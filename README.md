@@ -14,12 +14,11 @@ sync, no telemetry.
 > **Taking over development?** Read [HANDOFF.md](HANDOFF.md) first. It covers the
 > architecture, invariants, current status, next tasks, known issues and conventions.
 
-**Status (2026-11-05, v0.1.3):**
-- CI is green.
-- 77 + 1 Rust tests and 11 frontend tests pass.
+**Status (2026-11-10, v0.3.0):**
+- CI is green; Rust and frontend tests run on every push.
 - A signed NSIS installer builds and installs.
 - Provider integrations are verified against documentation and mocks only, not yet against live API keys.
-- No GitHub Release has been published yet.
+- Signed releases are published on [GitHub Releases](https://github.com/Ar0ng/Ycode/releases) (latest: v0.3.0).
 
 ## Features
 
@@ -109,7 +108,7 @@ src-tauri/src/
   tools/              file/search/edit/shell tools, sandbox.rs (path confinement)
   images.rs skills.rs storage.rs secrets.rs state.rs commands.rs updater.rs model.rs error.rs
 src-tauri/tests/      cache_probe.rs (live, ignored) · signature.rs (installer signature)
-scripts/              build-release.ps1 · install-test.ps1
+scripts/              build-release.ps1 · build-pre.ps1 (+ pre-release.json) · install-test.ps1
 docs/                 BUILD, API_SETUP, SKILLS, RELEASING, TESTING, KNOWN_LIMITATIONS
 .github/workflows/    ci.yml (every push) · release.yml (tags v*)
 ```
